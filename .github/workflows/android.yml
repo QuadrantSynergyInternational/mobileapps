@@ -47,7 +47,12 @@ jobs:
           node-version: ${{ github.event.inputs.node }}
       - name: Setup Android NDK
         if: ${{ github.event.inputs.ndk != '' }}
-        run: $ANDROID_HOME/tools/bin/sdkmanager --install "ndk;${{ github.event.inputs.ndk }}"
+        uses: nttld/setup-ndk@v1.5.0
+        with:
+          ndk-version: r21
+          add-to-path: true
+          link-to-sdk: true
+          local-cache: true
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ github.event.inputs.branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ github.event.inputs.repo }} input
       - name: Yarn Install
