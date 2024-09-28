@@ -1,0 +1,71 @@
+name: Build Android APK
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        type: string
+        description: Repo to pull
+        required: true
+      branch:
+        type: string
+        description: Source Branch
+        default: master
+        required: true
+      command:
+        type: string
+        description: Build Command
+        default: assembleRelease
+        required: true
+      tags:
+        type: string
+        description: Release Tag
+        default: 1.0.0
+        required: true
+      java:
+        type: string
+        description: Java Version
+      node:
+        type: string
+        description: NodeJS Version
+      ndk:
+        type: string
+        description: NDK Version
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4.4.0
+        if: ${{ github.event.inputs.java != '' }}
+        with:
+          java-version: ${{ github.event.inputs.java }}
+          distribution: corretto
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4.0.4
+        if: ${{ github.event.inputs.node != '' }}
+        with:
+          node-version: ${{ github.event.inputs.node }}
+      - name: Setup Android NDK
+        if: ${{ github.event.inputs.ndk != '' }}
+        uses: nttld/setup-ndk@v1.5.0
+        with:
+          ndk-version: ${{ github.event.inputs.ndk }}
+          add-to-path: true
+          link-to-sdk: true
+      - name: Clone Repo
+        run: git clone --depth=1 --single-branch --branch=${{ github.event.inputs.branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ github.event.inputs.repo }} input
+      - name: Yarn Install
+        working-directory: input
+        run: yarn install
+      - name: Gradle Build
+        working-directory: input/android
+        run: ./gradlew ${{ github.event.inputs.command }}
+      - name: Upload to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file_glob: true
+          file: input/**/*.apk
+          tag: "v${{ github.event.inputs.tags }}"
+          overwrite: true
+          body: "APK Release v${{ github.event.inputs.tags }}"
