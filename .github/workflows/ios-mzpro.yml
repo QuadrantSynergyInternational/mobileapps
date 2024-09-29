@@ -1,0 +1,55 @@
+name: Build iOS IPA
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        type: string
+        description: Repo to pull
+        required: true
+      branch:
+        type: string
+        description: Source Branch
+      configuration:
+        type: choice
+        description: Build Configuration
+        options: 
+          - Release
+          - Debug
+      tags:
+        type: string
+        description: Release Tag
+jobs:
+  build:
+    runs-on: macOS-latest
+    steps:
+      - name: Clone Repo
+        run: git clone --depth=1 --single-branch --branch=${{ github.event.inputs.branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ github.event.inputs.repo }} input
+      - name: Yarn Install
+        working-directory: input
+        run: yarn install
+      - name: Pod install
+        working-directory: input/ios
+        run: pod install
+      - name: Build IPA
+        uses: yukiarrr/ios-build-action@v1.12.0
+        with:
+          p12-base64: ${{ secrets.IOS_P12_BASE64 }}
+          mobileprovision-base64: ${{ secrets.IOS_MOBILE_PROVISION_BASE64 }}
+          code-signing-identity: 'iPhone Distribution'
+          team-id: ${{ secrets.IOS_TEAM_ID }}
+          certificate-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          project-path: input/ios/MZPro.xcodeproj
+          workspace-path: input/ios/MZPro.xcworkspace
+          scheme: MZPro
+          configuration: ${{ github.event.inputs.configuration }}
+          export-method: ad-hoc
+          output-path: output.ipa
+      - name: Upload to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: output.ipa
+          asset_name: output.ipa
+          tag: "v${{ github.event.inputs.tags }}-${{ github.event.inputs.configuration }}"
+          overwrite: true
+          body: "IPA Release v${{ github.event.inputs.tags }} (${{ github.event.inputs.configuration }})"
