@@ -44,6 +44,8 @@ jobs:
           configuration: ${{ github.event.inputs.configuration }}
           export-method: ad-hoc
           output-path: output.ipa
+      - name: Clean up
+        run: rm -rf ./input
       - name: Upload to release
         uses: svenstaro/upload-release-action@v2
         with:
