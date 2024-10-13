@@ -27,6 +27,8 @@ jobs:
       - name: Yarn Install
         working-directory: input
         run: yarn install
+      - name: Pod Repo
+        run: pod repo add https://oktapod.quadrant-si.id/framework/quadrant.specs.git
       - name: Pod install
         working-directory: input/ios
         run: pod install
