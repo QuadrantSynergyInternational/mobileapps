@@ -31,7 +31,7 @@ jobs:
         run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git
       - name: Pod install
         working-directory: input/ios
-        run: pod install
+        run: pod install --repo-update
       - name: Build IPA
         uses: yukiarrr/ios-build-action@v1.12.0
         with:
