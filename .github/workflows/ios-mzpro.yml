@@ -18,6 +18,9 @@ on:
       tags:
         type: string
         description: Release Tag
+      releaseTo:
+        type: string
+        description: Release To Repo
 jobs:
   build:
     runs-on: macOS-latest
@@ -31,7 +34,7 @@ jobs:
         run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git
       - name: Pod install
         working-directory: input/ios
-        run: rm -rf Podfile.lock && pod install
+        run: pod install
       - name: Build IPA
         uses: yukiarrr/ios-build-action@v1.12.0
         with:
@@ -49,11 +52,11 @@ jobs:
       - name: Clean up
         run: rm -rf ./input
       - name: Upload to release
-        uses: svenstaro/upload-release-action@v2
+        uses: softprops/action-gh-release@v1
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: output.ipa
-          asset_name: output.ipa
-          tag: "v${{ github.event.inputs.tags }}-${{ github.event.inputs.configuration }}"
-          overwrite: true
+          repository: ${{ github.event.inputs.releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: |
+            output.ipa
+          tag_name: "v${{ github.event.inputs.tags }}-${{ github.event.inputs.configuration }}"
           body: "IPA Release v${{ github.event.inputs.tags }} (${{ github.event.inputs.configuration }})"
