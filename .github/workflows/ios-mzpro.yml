@@ -56,16 +56,14 @@ jobs:
           scheme: MZPro
           configuration: ${{ github.event.inputs.configuration }}
           export-method: ad-hoc
-          output-path: output.ipa
-      - name: Clean up
-        run: rm -rf ./input
+          output-path: "output-${{ github.event.inputs.configuration }}.ipa"
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         with:
           repository: ${{ github.event.inputs.releaseTo }}
           token: ${{ secrets.GH_PAT }}
           files: |
-            output.ipa
+            "output-${{ github.event.inputs.configuration }}.ipa"
           tag_name: "v${{ github.event.inputs.tags }}"
           body: "IPA Release v${{ github.event.inputs.tags }} (${{ github.event.inputs.configuration }})"
           append_body: true
