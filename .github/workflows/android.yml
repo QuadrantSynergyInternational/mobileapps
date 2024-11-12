@@ -73,7 +73,7 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           files: |
             input/**/*.apk
-          tag_name: "v${{ github.event.inputs.tags }}-${{ github.event.inputs.configuration }}"
+          tag_name: "v${{ github.event.inputs.tags }}"
           body: "APK Release v${{ github.event.inputs.tags }} (${{ github.event.inputs.configuration }})"
           append_body: true
           file: input/**/*.apk
