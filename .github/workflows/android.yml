@@ -11,16 +11,21 @@ on:
         description: Source Branch
         default: master
         required: true
-      command:
+      flavor:
         type: string
-        description: Build Command
-        default: assembleRelease
-        required: true
+        description: Build Flavor
+      configuration:
+        type: choice
+        description: Build Configuration
+        options: 
+          - Release
+          - Debug
       tags:
         type: string
         description: Release Tag
-        default: 1.0.0
-        required: true
+      releaseTo:
+        type: string
+        description: Release To Repo
       java:
         type: string
         description: Java Version
@@ -60,13 +65,15 @@ jobs:
         run: yarn install
       - name: Gradle Build
         working-directory: input/android
-        run: ./gradlew ${{ github.event.inputs.command }}
+        run: ./gradlew assemble${{ github.event.inputs.flavor }}${{ github.event.inputs.configuration }}
       - name: Upload to release
-        uses: svenstaro/upload-release-action@v2
+        uses: softprops/action-gh-release@v1
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file_glob: true
+          repository: ${{ github.event.inputs.releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: |
+            input/**/*.apk
+          tag_name: "v${{ github.event.inputs.tags }}-${{ github.event.inputs.configuration }}"
+          body: "APK Release v${{ github.event.inputs.tags }} (${{ github.event.inputs.configuration }})"
+          append_body: true
           file: input/**/*.apk
-          tag: "v${{ github.event.inputs.tags }}"
-          overwrite: true
-          body: "APK Release v${{ github.event.inputs.tags }}"
