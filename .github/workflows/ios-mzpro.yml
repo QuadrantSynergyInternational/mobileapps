@@ -58,5 +58,6 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           files: |
             output.ipa
-          tag_name: "v${{ github.event.inputs.tags }}-${{ github.event.inputs.configuration }}"
+          tag_name: "v${{ github.event.inputs.tags }}"
           body: "IPA Release v${{ github.event.inputs.tags }} (${{ github.event.inputs.configuration }})"
+          append_body: true
