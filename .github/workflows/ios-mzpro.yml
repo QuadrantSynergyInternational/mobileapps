@@ -43,6 +43,8 @@ jobs:
       - name: Pod install
         working-directory: input/ios
         run: pod install
+      - name: Download Export Plist
+        run: curl --output export.plist "https://appcenterq.vercel.app/ios-export"
       - name: Build IPA
         uses: yukiarrr/ios-build-action@v1.12.0
         with:
@@ -57,6 +59,7 @@ jobs:
           configuration: ${{ github.event.inputs.configuration }}
           export-method: ad-hoc
           output-path: "output-${{ github.event.inputs.configuration }}.ipa"
+          export-options: export.plist
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         with:
@@ -64,6 +67,7 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           files: |
             "output-${{ github.event.inputs.configuration }}.ipa"
+            "manifest.plist"
           tag_name: "v${{ github.event.inputs.tags }}"
           body: "IPA Release v${{ github.event.inputs.tags }} (${{ github.event.inputs.configuration }})"
           append_body: true
