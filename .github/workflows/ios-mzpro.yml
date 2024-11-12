@@ -21,10 +21,18 @@ on:
       releaseTo:
         type: string
         description: Release To Repo
+      node:
+        type: string
+        description: NodeJS Version
 jobs:
   build:
     runs-on: macOS-latest
     steps:
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4.0.4
+        if: ${{ github.event.inputs.node != '' }}
+        with:
+          node-version: ${{ github.event.inputs.node }}
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ github.event.inputs.branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ github.event.inputs.repo }} input
       - name: Yarn Install
