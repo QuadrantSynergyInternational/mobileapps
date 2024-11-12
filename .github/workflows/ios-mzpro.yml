@@ -68,6 +68,6 @@ jobs:
           files: |
             "output-${{ github.event.inputs.configuration }}.ipa"
             "manifest.plist"
-          tag_name: "v${{ github.event.inputs.tags }}"
+          tag_name: "v${{ github.event.inputs.tags }}-${{ github.event.inputs.configuration }}"
           body: "IPA Release v${{ github.event.inputs.tags }} (${{ github.event.inputs.configuration }})"
           append_body: true
