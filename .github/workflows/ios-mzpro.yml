@@ -1,4 +1,4 @@
-name: Build iOS Action Yukiarr Fork
+name: Build iOS IPA
 on:
   workflow_dispatch:
     inputs:
@@ -46,7 +46,7 @@ jobs:
       - name: Download Export Plist
         run: curl --output export.plist "https://appcenterq.vercel.app/ios-export"
       - name: Build IPA
-        uses: yukiarrr/ios-build-action@v1.12.0
+        uses: muhamad-rizki/ios-build-action@v1.0.0
         with:
           p12-base64: ${{ secrets.IOS_P12_BASE64 }}
           mobileprovision-base64: ${{ secrets.IOS_MOBILE_PROVISION_BASE64 }}
