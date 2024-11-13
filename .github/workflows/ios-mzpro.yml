@@ -58,7 +58,7 @@ jobs:
           scheme: MZPro
           configuration: ${{ github.event.inputs.configuration }}
           export-method: ad-hoc
-          output-path: "output-${{ github.event.inputs.configuration }}.ipa"
+          output-path: output-${{ github.event.inputs.configuration }}.ipa
           export-options: export.plist
       - name: Upload to release
         uses: softprops/action-gh-release@v1
@@ -66,8 +66,8 @@ jobs:
           repository: ${{ github.event.inputs.releaseTo }}
           token: ${{ secrets.GH_PAT }}
           files: |
-            "output-${{ github.event.inputs.configuration }}.ipa"
-            "manifest.plist"
+            output-${{ github.event.inputs.configuration }}.ipa
+            manifest.plist
           tag_name: "v${{ github.event.inputs.tags }}-${{ github.event.inputs.configuration }}"
           body: "IPA Release v${{ github.event.inputs.tags }} (${{ github.event.inputs.configuration }})"
           append_body: true
