@@ -1,4 +1,4 @@
-name: Build iOS IPA
+name: Build iOS Action Yukiarr Fork
 on:
   workflow_dispatch:
     inputs:
