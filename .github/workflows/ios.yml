@@ -2,59 +2,23 @@ name: Build iOS IPA
 on:
   workflow_dispatch:
     inputs:
-      repo:
+      params:
         type: string
-        description: Repo to pull
+        description: Build Params
         required: true
-      branch:
-        type: string
-        description: Source Branch
-      configuration:
-        type: choice
-        description: Build Configuration
-        options: 
-          - Release
-          - Debug
-      tags:
-        type: string
-        description: Release Tag
-      releaseTo:
-        type: string
-        description: Release To Repo
-      node:
-        type: string
-        description: NodeJS Version
-        default: "20"
-      projectid:
-        type: string
-        description: Project ID
-      scheme:
-        type: string
-        description: Project Scheme
-      exportmethod:
-        type: string
-        description: XCode Export Method (app-store, ad-hoc, package, enterprise, development, or developer-id)
-        default: ad-hoc
-      projectworkspace:
-        type: string
-        description: Project Workspace Path
-      projectpath:
-        type: string
-        description: Project Path
-      teamid:
-        type: string
-        description: Project Path
 jobs:
   build:
     runs-on: macOS-latest
+    strategy:
+      matrix: ${{ fromJSON(github.event.inputs.params) }}
     steps:
       - name: Setup Node.js environment
         uses: actions/setup-node@v4.0.4
-        if: ${{ github.event.inputs.node != '' }}
+        if: ${{ matrix.node != '' }}
         with:
-          node-version: ${{ github.event.inputs.node }}
+          node-version: ${{ matrix.node }}
       - name: Clone Repo
-        run: git clone --depth=1 --single-branch --branch=${{ github.event.inputs.branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ github.event.inputs.repo }} input
+        run: git clone --depth=1 --single-branch --branch=${{ matrix.branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ matrix.repo }} input
       - name: Clone Provision
         run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@https://github.com/admindevopsqsi/ios-provision.git provision
       - name: Yarn Install
@@ -70,26 +34,26 @@ jobs:
       - name: Build IPA
         uses: muhamad-rizki/ios-build-action@v1.0.2
         with:
-          p12-path: ./provision/${{ github.event.inputs.projectid }}/${{ github.event.inputs.branch }}.p12
-          mobileprovision-path: ./provision/${{ github.event.inputs.projectid }}/${{ github.event.inputs.branch }}.mobileprovision
+          p12-path: ./provision/${{ matrix.projectid }}/${{ matrix.branch }}.p12
+          mobileprovision-path: ./provision/${{ matrix.projectid }}/${{ matrix.branch }}.mobileprovision
           code-signing-identity: 'iPhone Distribution'
-          team-id: ${{ github.event.inputs.teamid }}
+          team-id: ${{ matrix.teamid }}
           certificate-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          project-path: input/ios/${{ github.event.inputs.projectpath }}
-          workspace-path: input/ios/${{ github.event.inputs.projectworkspace }}
-          scheme: ${{ github.event.inputs.scheme }}
-          configuration: ${{ github.event.inputs.configuration }}
-          export-method: ${{ github.event.inputs.exportmethod }}
-          output-path: output-${{ github.event.inputs.configuration }}.ipa
+          project-path: input/ios/${{ matrix.projectpath }}
+          workspace-path: input/ios/${{ matrix.projectworkspace }}
+          scheme: ${{ matrix.scheme }}
+          configuration: ${{ matrix.configuration }}
+          export-method: ${{ matrix.exportmethod }}
+          output-path: output-${{ matrix.configuration }}.ipa
           export-options: export.plist
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         with:
-          repository: ${{ github.event.inputs.releaseTo }}
+          repository: ${{ matrix.releaseTo }}
           token: ${{ secrets.GH_PAT }}
           files: |
-            output-${{ github.event.inputs.configuration }}.ipa
+            output-${{ matrix.configuration }}.ipa
             manifest.plist
-          tag_name: "v${{ github.event.inputs.tags }}-${{ github.event.inputs.configuration }}"
-          body: "IPA Release v${{ github.event.inputs.tags }} (${{ github.event.inputs.configuration }})"
+          tag_name: "v${{ matrix.tags }}-${{ matrix.configuration }}"
+          body: "IPA Release v${{ matrix.tags }} (${{ matrix.configuration }})"
           append_body: true
