@@ -9,8 +9,7 @@ on:
 jobs:
   init:
     runs-on: macOS-latest
-    outputs:
-      config: ${{ fromJSON(github.event.inputs.params) }}
+    outputs: ${{ fromJSON(github.event.inputs.params) }}
     steps:
       - name: Parse Config Params
         run: echo "OK"
@@ -20,11 +19,11 @@ jobs:
     steps:
       - name: Setup Node.js environment
         uses: actions/setup-node@v4.0.4
-        if: ${{ needs.init.outputs.config.node != '' }}
+        if: ${{ needs.init.outputs.node != '' }}
         with:
-          node-version: ${{ needs.init.outputs.config.node }}
+          node-version: ${{ needs.init.outputs.node }}
       - name: Clone Repo
-        run: git clone --depth=1 --single-branch --branch=${{ needs.init.outputs.config.branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ needs.init.outputs.config.repo }} input
+        run: git clone --depth=1 --single-branch --branch=${{ needs.init.outputs.branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ needs.init.outputs.repo }} input
       - name: Clone Provision
         run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@https://github.com/admindevopsqsi/ios-provision.git provision
       - name: Yarn Install
@@ -40,26 +39,26 @@ jobs:
       - name: Build IPA
         uses: muhamad-rizki/ios-build-action@v1.0.2
         with:
-          p12-path: ./provision/${{ needs.init.outputs.config.projectid }}/${{ needs.init.outputs.config.branch }}.p12
-          mobileprovision-path: ./provision/${{ needs.init.outputs.config.projectid }}/${{ needs.init.outputs.config.branch }}.mobileprovision
+          p12-path: ./provision/${{ needs.init.outputs.projectid }}/${{ needs.init.outputs.branch }}.p12
+          mobileprovision-path: ./provision/${{ needs.init.outputs.projectid }}/${{ needs.init.outputs.branch }}.mobileprovision
           code-signing-identity: 'iPhone Distribution'
-          team-id: ${{ needs.init.outputs.config.teamid }}
+          team-id: ${{ needs.init.outputs.teamid }}
           certificate-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          project-path: input/ios/${{ needs.init.outputs.config.projectpath }}
-          workspace-path: input/ios/${{ needs.init.outputs.config.projectworkspace }}
-          scheme: ${{ needs.init.outputs.config.scheme }}
-          configuration: ${{ needs.init.outputs.config.configuration }}
-          export-method: ${{ needs.init.outputs.config.exportmethod }}
-          output-path: output-${{ needs.init.outputs.config.configuration }}.ipa
+          project-path: input/ios/${{ needs.init.outputs.projectpath }}
+          workspace-path: input/ios/${{ needs.init.outputs.projectworkspace }}
+          scheme: ${{ needs.init.outputs.scheme }}
+          configuration: ${{ needs.init.outputs.configuration }}
+          export-method: ${{ needs.init.outputs.exportmethod }}
+          output-path: output-${{ needs.init.outputs.configuration }}.ipa
           export-options: export.plist
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         with:
-          repository: ${{ needs.init.outputs.config.releaseTo }}
+          repository: ${{ needs.init.outputs.releaseTo }}
           token: ${{ secrets.GH_PAT }}
           files: |
-            output-${{ needs.init.outputs.config.configuration }}.ipa
+            output-${{ needs.init.outputs.configuration }}.ipa
             manifest.plist
-          tag_name: "v${{ needs.init.outputs.config.tags }}-${{ needs.init.outputs.config.configuration }}"
-          body: "IPA Release v${{ needs.init.outputs.config.tags }} (${{ needs.init.outputs.config.configuration }})"
+          tag_name: "v${{ needs.init.outputs.tags }}-${{ needs.init.outputs.configuration }}"
+          body: "IPA Release v${{ needs.init.outputs.tags }} (${{ needs.init.outputs.configuration }})"
           append_body: true
