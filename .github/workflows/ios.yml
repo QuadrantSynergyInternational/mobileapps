@@ -9,7 +9,7 @@ on:
 jobs:
   init:
     runs-on: macOS-latest
-    outputs: ${{ fromJSON(github.event.inputs.params) }}
+    outputs: ${{ fromJSON(inputs.params) }}
     steps:
       - name: Parse Config Params
         run: echo "OK"
