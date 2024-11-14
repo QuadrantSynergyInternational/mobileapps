@@ -13,6 +13,7 @@ jobs:
       config: ${{ fromJSON(github.event.inputs.params) }}
     steps:
       - name: Parse Config Params
+        run: echo "OK"
   build:
     needs: init
     runs-on: macOS-latest
