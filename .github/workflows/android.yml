@@ -2,56 +2,27 @@ name: Build Android APK
 on:
   workflow_dispatch:
     inputs:
-      repo:
+      params:
         type: string
-        description: Repo to pull
+        description: Build Params
         required: true
-      branch:
-        type: string
-        description: Source Branch
-        default: master
-        required: true
-      flavor:
-        type: string
-        description: Build Flavor
-      configuration:
-        type: choice
-        description: Build Configuration
-        options: 
-          - Release
-          - Debug
-      tags:
-        type: string
-        description: Release Tag
-      releaseTo:
-        type: string
-        description: Release To Repo
-      java:
-        type: string
-        description: Java Version
-      node:
-        type: string
-        description: NodeJS Version
-      ndk:
-        type: string
-        description: NDK Version
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Setup Java JDK
         uses: actions/setup-java@v4.4.0
-        if: ${{ github.event.inputs.java != '' }}
+        if: ${{ fromJSON(github.event.inputs.params).java != '' }}
         with:
-          java-version: ${{ github.event.inputs.java }}
+          java-version: ${{ fromJSON(github.event.inputs.params).java }}
           distribution: corretto
       - name: Setup Node.js environment
         uses: actions/setup-node@v4.0.4
-        if: ${{ github.event.inputs.node != '' }}
+        if: ${{ fromJSON(github.event.inputs.params).node != '' }}
         with:
-          node-version: ${{ github.event.inputs.node }}
+          node-version: ${{ fromJSON(github.event.inputs.params).node }}
       - name: Setup Android NDK
-        if: ${{ github.event.inputs.ndk != '' }}
+        if: ${{ fromJSON(github.event.inputs.params).ndk != '' }}
         uses: nttld/setup-ndk@v1.5.0
         with:
           ndk-version: r21
@@ -59,21 +30,27 @@ jobs:
           link-to-sdk: true
           local-cache: true
       - name: Clone Repo
-        run: git clone --depth=1 --single-branch --branch=${{ github.event.inputs.branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ github.event.inputs.repo }} input
+        run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
+      - name: Cache node modules
+        uses: actions/cache@v3
+        with:
+          path: ./input/node_modules
+          key: node_modules-${{hashFiles('input/yarn.lock')}}
+          restore-keys: node_modules- # Take any latest cache if failed to find it for current yarn.lock
       - name: Yarn Install
         working-directory: input
         run: yarn install
       - name: Gradle Build
         working-directory: input/android
-        run: ./gradlew assemble${{ github.event.inputs.flavor }}${{ github.event.inputs.configuration }}
+        run: ./gradlew assemble${{ fromJSON(github.event.inputs.params).flavor }}${{ fromJSON(github.event.inputs.params).configuration }}
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         with:
-          repository: ${{ github.event.inputs.releaseTo }}
+          repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
           files: |
             input/**/*.apk
-          tag_name: "v${{ github.event.inputs.tags }}-${{ github.event.inputs.configuration }}"
-          body: "APK Release v${{ github.event.inputs.tags }} (${{ github.event.inputs.configuration }})"
+          tag_name: "v${{ fromJSON(github.event.inputs.params).tags }}-${{ fromJSON(github.event.inputs.params).configuration }}"
+          body: "APK Release v${{ fromJSON(github.event.inputs.params).tags }} (${{ fromJSON(github.event.inputs.params).configuration }})"
           append_body: true
           file: input/**/*.apk
