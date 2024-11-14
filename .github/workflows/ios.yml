@@ -65,4 +65,4 @@ jobs:
             manifest.plist
           tag_name: "v${{ steps.package-version.outputs.current-version}}-${{ fromJSON(github.event.inputs.params).configuration }}-${{ fromJSON(github.event.inputs.params).branch }}"
           body: "IPA Release v${{ steps.package-version.outputs.current-version}} (${{ fromJSON(github.event.inputs.params).configuration }})"
-          body_path: ./input/releasenote.txt
+          body_path: ./input/releasenote.md
