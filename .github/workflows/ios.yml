@@ -18,7 +18,7 @@ jobs:
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
       - name: Clone Provision
-        run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@https://github.com/admindevopsqsi/ios-provision.git provision
+        run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
       - name: Yarn Install
         working-directory: input
         run: yarn install
