@@ -7,23 +7,16 @@ on:
         description: Build Params
         required: true
 jobs:
-  init:
-    runs-on: macOS-latest
-    outputs: ${{ fromJSON(inputs.params) }}
-    steps:
-      - name: Parse Config Params
-        run: echo "OK"
   build:
-    needs: init
     runs-on: macOS-latest
     steps:
       - name: Setup Node.js environment
         uses: actions/setup-node@v4.0.4
-        if: ${{ needs.init.outputs.node != '' }}
+        if: ${{ fromJSON(github.event.inputs.params).node != '' }}
         with:
-          node-version: ${{ needs.init.outputs.node }}
+          node-version: ${{ fromJSON(github.event.inputs.params).node }}
       - name: Clone Repo
-        run: git clone --depth=1 --single-branch --branch=${{ needs.init.outputs.branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ needs.init.outputs.repo }} input
+        run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
       - name: Clone Provision
         run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@https://github.com/admindevopsqsi/ios-provision.git provision
       - name: Yarn Install
@@ -39,26 +32,26 @@ jobs:
       - name: Build IPA
         uses: muhamad-rizki/ios-build-action@v1.0.2
         with:
-          p12-path: ./provision/${{ needs.init.outputs.projectid }}/${{ needs.init.outputs.branch }}.p12
-          mobileprovision-path: ./provision/${{ needs.init.outputs.projectid }}/${{ needs.init.outputs.branch }}.mobileprovision
+          p12-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).branch }}.p12
+          mobileprovision-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).branch }}.mobileprovision
           code-signing-identity: 'iPhone Distribution'
-          team-id: ${{ needs.init.outputs.teamid }}
+          team-id: ${{ fromJSON(github.event.inputs.params).teamid }}
           certificate-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          project-path: input/ios/${{ needs.init.outputs.projectpath }}
-          workspace-path: input/ios/${{ needs.init.outputs.projectworkspace }}
-          scheme: ${{ needs.init.outputs.scheme }}
-          configuration: ${{ needs.init.outputs.configuration }}
-          export-method: ${{ needs.init.outputs.exportmethod }}
-          output-path: output-${{ needs.init.outputs.configuration }}.ipa
+          project-path: input/ios/${{ fromJSON(github.event.inputs.params).projectpath }}
+          workspace-path: input/ios/${{ fromJSON(github.event.inputs.params).projectworkspace }}
+          scheme: ${{ fromJSON(github.event.inputs.params).scheme }}
+          configuration: ${{ fromJSON(github.event.inputs.params).configuration }}
+          export-method: ${{ fromJSON(github.event.inputs.params).exportmethod }}
+          output-path: output-${{ fromJSON(github.event.inputs.params).configuration }}.ipa
           export-options: export.plist
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         with:
-          repository: ${{ needs.init.outputs.releaseTo }}
+          repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
           files: |
-            output-${{ needs.init.outputs.configuration }}.ipa
+            output-${{ fromJSON(github.event.inputs.params).configuration }}.ipa
             manifest.plist
-          tag_name: "v${{ needs.init.outputs.tags }}-${{ needs.init.outputs.configuration }}"
-          body: "IPA Release v${{ needs.init.outputs.tags }} (${{ needs.init.outputs.configuration }})"
+          tag_name: "v${{ fromJSON(github.event.inputs.params).tags }}-${{ fromJSON(github.event.inputs.params).configuration }}"
+          body: "IPA Release v${{ fromJSON(github.event.inputs.params).tags }} (${{ fromJSON(github.event.inputs.params).configuration }})"
           append_body: true
