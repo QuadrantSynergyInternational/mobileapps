@@ -52,5 +52,6 @@ jobs:
             input/**/*.apk
           tag_name: "v${{ fromJSON(github.event.inputs.params).tags }}-${{ fromJSON(github.event.inputs.params).configuration }}"
           body: "APK Release v${{ fromJSON(github.event.inputs.params).tags }} (${{ fromJSON(github.event.inputs.params).configuration }})"
+          body_path: ./input/releasenote.txt
           append_body: true
           file: input/**/*.apk
