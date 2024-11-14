@@ -19,6 +19,12 @@ jobs:
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
       - name: Clone Provision
         run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
+      - name: Cache node modules
+        uses: actions/cache@v3
+        with:
+          path: ./input/node_modules
+          key: node_modules-${{hashFiles('input/yarn.lock')}}
+          restore-keys: node_modules- # Take any latest cache if failed to find it for current yarn.lock
       - name: Yarn Install
         working-directory: input
         run: yarn install
