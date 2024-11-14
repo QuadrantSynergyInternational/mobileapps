@@ -24,6 +24,26 @@ on:
       node:
         type: string
         description: NodeJS Version
+        default: "20"
+      projectid:
+        type: string
+        description: Project ID
+      scheme:
+        type: string
+        description: Project Scheme
+      exportmethod:
+        type: string
+        description: XCode Export Method (app-store, ad-hoc, package, enterprise, development, or developer-id)
+        default: ad-hoc
+      projectworkspace:
+        type: string
+        description: Project Workspace Path
+      projectpath:
+        type: string
+        description: Project Path
+      teamid:
+        type: string
+        description: Project Path
 jobs:
   build:
     runs-on: macOS-latest
@@ -35,6 +55,8 @@ jobs:
           node-version: ${{ github.event.inputs.node }}
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ github.event.inputs.branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ github.event.inputs.repo }} input
+      - name: Clone Provision
+        run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@https://github.com/admindevopsqsi/ios-provision.git provision
       - name: Yarn Install
         working-directory: input
         run: yarn install
@@ -48,16 +70,16 @@ jobs:
       - name: Build IPA
         uses: muhamad-rizki/ios-build-action@v1.0.2
         with:
-          p12-base64: ${{ secrets.IOS_P12_BASE64 }}
-          mobileprovision-base64: ${{ secrets.IOS_MOBILE_PROVISION_BASE64 }}
+          p12-path: ./provision/${{ github.event.inputs.projectid }}/${{ github.event.inputs.branch }}.p12
+          mobileprovision-path: ./provision/${{ github.event.inputs.projectid }}/${{ github.event.inputs.branch }}.mobileprovision
           code-signing-identity: 'iPhone Distribution'
-          team-id: ${{ secrets.IOS_TEAM_ID }}
+          team-id: ${{ github.event.inputs.teamid }}
           certificate-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          project-path: input/ios/MZPro.xcodeproj
-          workspace-path: input/ios/MZPro.xcworkspace
-          scheme: MZPro
+          project-path: input/ios/${{ github.event.inputs.projectpath }}
+          workspace-path: input/ios/${{ github.event.inputs.projectworkspace }}
+          scheme: ${{ github.event.inputs.scheme }}
           configuration: ${{ github.event.inputs.configuration }}
-          export-method: ad-hoc
+          export-method: ${{ github.event.inputs.exportmethod }}
           output-path: output-${{ github.event.inputs.configuration }}.ipa
           export-options: export.plist
       - name: Upload to release
