@@ -7,18 +7,21 @@ on:
         description: Build Params
         required: true
 jobs:
-  build:
+  init:
     runs-on: macOS-latest
-    strategy:
-      matrix: ${{ fromJSON(github.event.inputs.params) }}
+    outputs:
+      config: ${{ fromJSON(github.event.inputs.params) }}
+  build:
+    needs: init
+    runs-on: macOS-latest
     steps:
       - name: Setup Node.js environment
         uses: actions/setup-node@v4.0.4
-        if: ${{ matrix.node != '' }}
+        if: ${{ needs.init.outputs.config.node != '' }}
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ needs.init.outputs.config.node }}
       - name: Clone Repo
-        run: git clone --depth=1 --single-branch --branch=${{ matrix.branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ matrix.repo }} input
+        run: git clone --depth=1 --single-branch --branch=${{ needs.init.outputs.config.branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ needs.init.outputs.config.repo }} input
       - name: Clone Provision
         run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@https://github.com/admindevopsqsi/ios-provision.git provision
       - name: Yarn Install
@@ -34,26 +37,26 @@ jobs:
       - name: Build IPA
         uses: muhamad-rizki/ios-build-action@v1.0.2
         with:
-          p12-path: ./provision/${{ matrix.projectid }}/${{ matrix.branch }}.p12
-          mobileprovision-path: ./provision/${{ matrix.projectid }}/${{ matrix.branch }}.mobileprovision
+          p12-path: ./provision/${{ needs.init.outputs.config.projectid }}/${{ needs.init.outputs.config.branch }}.p12
+          mobileprovision-path: ./provision/${{ needs.init.outputs.config.projectid }}/${{ needs.init.outputs.config.branch }}.mobileprovision
           code-signing-identity: 'iPhone Distribution'
-          team-id: ${{ matrix.teamid }}
+          team-id: ${{ needs.init.outputs.config.teamid }}
           certificate-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          project-path: input/ios/${{ matrix.projectpath }}
-          workspace-path: input/ios/${{ matrix.projectworkspace }}
-          scheme: ${{ matrix.scheme }}
-          configuration: ${{ matrix.configuration }}
-          export-method: ${{ matrix.exportmethod }}
-          output-path: output-${{ matrix.configuration }}.ipa
+          project-path: input/ios/${{ needs.init.outputs.config.projectpath }}
+          workspace-path: input/ios/${{ needs.init.outputs.config.projectworkspace }}
+          scheme: ${{ needs.init.outputs.config.scheme }}
+          configuration: ${{ needs.init.outputs.config.configuration }}
+          export-method: ${{ needs.init.outputs.config.exportmethod }}
+          output-path: output-${{ needs.init.outputs.config.configuration }}.ipa
           export-options: export.plist
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         with:
-          repository: ${{ matrix.releaseTo }}
+          repository: ${{ needs.init.outputs.config.releaseTo }}
           token: ${{ secrets.GH_PAT }}
           files: |
-            output-${{ matrix.configuration }}.ipa
+            output-${{ needs.init.outputs.config.configuration }}.ipa
             manifest.plist
-          tag_name: "v${{ matrix.tags }}-${{ matrix.configuration }}"
-          body: "IPA Release v${{ matrix.tags }} (${{ matrix.configuration }})"
+          tag_name: "v${{ needs.init.outputs.config.tags }}-${{ needs.init.outputs.config.configuration }}"
+          body: "IPA Release v${{ needs.init.outputs.config.tags }} (${{ needs.init.outputs.config.configuration }})"
           append_body: true
