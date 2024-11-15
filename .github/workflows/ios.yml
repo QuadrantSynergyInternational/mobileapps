@@ -10,6 +10,10 @@ jobs:
   build:
     runs-on: macOS-latest
     steps:
+      - name: Clone Repo
+        run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
+      - name: Clone Provision
+        run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
       - name: Setup Node.js environment
         uses: actions/setup-node@v4.0.4
         if: ${{ fromJSON(github.event.inputs.params).node != '' }}
@@ -17,10 +21,6 @@ jobs:
           node-version: ${{ fromJSON(github.event.inputs.params).node }}
           cache: 'yarn'
           cache-dependency-path: ./input/yarn.lock
-      - name: Clone Repo
-        run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
-      - name: Clone Provision
-        run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
       - name: Get Apps Version
         id: package-version
         working-directory: input
