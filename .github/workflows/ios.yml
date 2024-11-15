@@ -40,8 +40,8 @@ jobs:
       - name: Build IPA
         uses: muhamad-rizki/ios-build-action@v1.0.2
         with:
-          p12-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.p12
-          mobileprovision-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.mobileprovision
+          p12-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.p12
+          mobileprovision-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.mobileprovision
           code-signing-identity: 'iPhone Distribution'
           team-id: ${{ fromJSON(github.event.inputs.params).teamid }}
           certificate-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
