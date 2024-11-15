@@ -43,7 +43,7 @@ jobs:
         run: sed -i -e 's/\^//g' ./input/package.json                                                                                                                                                    
       - name: Yarn Install
         working-directory: input
-        run: yarn install --frozen-lockfile
+        run: yarn install
       - name: Gradle Build
         working-directory: input/android
         run: ./gradlew assemble${{ fromJSON(github.event.inputs.params).flavor }}${{ fromJSON(github.event.inputs.params).configuration }}
