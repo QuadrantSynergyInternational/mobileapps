@@ -53,7 +53,7 @@ jobs:
           output-path: output-${{ fromJSON(github.event.inputs.params).configuration }}.ipa
           export-options: export.plist
       - name: Upload to release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
