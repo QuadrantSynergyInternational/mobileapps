@@ -15,6 +15,8 @@ jobs:
         if: ${{ fromJSON(github.event.inputs.params).node != '' }}
         with:
           node-version: ${{ fromJSON(github.event.inputs.params).node }}
+          cache: 'yarn'
+          cache-dependency-path: ./input/yarn.lock
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
       - name: Clone Provision
@@ -25,12 +27,6 @@ jobs:
         run: |
           current_version=$(node -e "console.log(require('./package.json').version)")
           echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
-      - name: Cache node modules
-        uses: actions/cache@v3
-        with:
-          path: ./input/node_modules
-          key: node_modules-${{hashFiles('input/yarn.lock')}}
-          restore-keys: node_modules- # Take any latest cache if failed to find it for current yarn.lock
       - name: Yarn Install
         working-directory: input
         run: yarn install
@@ -49,8 +45,8 @@ jobs:
           code-signing-identity: 'iPhone Distribution'
           team-id: ${{ fromJSON(github.event.inputs.params).teamid }}
           certificate-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          project-path: input/ios/${{ fromJSON(github.event.inputs.params).projectpath }}
-          workspace-path: input/ios/${{ fromJSON(github.event.inputs.params).projectworkspace }}
+          project-path: input/${{ fromJSON(github.event.inputs.params).projectpath }}
+          workspace-path: input/${{ fromJSON(github.event.inputs.params).projectworkspace }}
           scheme: ${{ fromJSON(github.event.inputs.params).scheme }}
           configuration: ${{ fromJSON(github.event.inputs.params).configuration }}
           export-method: ${{ fromJSON(github.event.inputs.params).exportmethod }}
