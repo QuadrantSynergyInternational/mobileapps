@@ -21,9 +21,8 @@ jobs:
         run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
       - name: Get Apps Version
         id: package-version
-        uses: martinbeentjes/npm-get-version-action@v1.3.1
-        with:
-          path: ./input
+        working-directory: input
+        run: echo "current-version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
       - name: Cache node modules
         uses: actions/cache@v3
         with:
