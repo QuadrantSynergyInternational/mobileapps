@@ -41,7 +41,7 @@ jobs:
           echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
       - name: Yarn Install
         working-directory: input
-        run: yarn install
+        run: yarn install --frozen-lockfile
       - name: Gradle Build
         working-directory: input/android
         run: ./gradlew assemble${{ fromJSON(github.event.inputs.params).flavor }}${{ fromJSON(github.event.inputs.params).configuration }}
