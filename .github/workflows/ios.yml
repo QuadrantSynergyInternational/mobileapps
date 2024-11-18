@@ -25,7 +25,7 @@ jobs:
           ruby-version: '3.3'
           bundler-cache: true
       - name: Bundle Install
-        working-directory: input
+        working-directory: ./input
         run: bundle install
       - name: Setup Node.js environment
         uses: actions/setup-node@v4.0.4
