@@ -10,6 +10,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Logging
+        run: |
+          curl -L \
+            -X POST \
+            -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+            https://${{ secrets.APPCETNER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projecid }}/trigger-log
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
       - name: Setup Java JDK
