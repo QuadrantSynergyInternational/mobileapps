@@ -45,7 +45,7 @@ jobs:
         run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git
       - name: Pod install
         working-directory: input/ios
-        run: pod install
+        run: pod install --repo-update
       - name: Download Export Plist
         run: curl --output export.plist "https://appcenterq.vercel.app/ios-export"
       - name: Build IPA
