@@ -19,6 +19,14 @@ jobs:
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
       - name: Clone Provision
         run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+      - name: Bundle Install
+        working-directory: input
+        run: bundle install
       - name: Setup Node.js environment
         uses: actions/setup-node@v4.0.4
         if: ${{ fromJSON(github.event.inputs.params).node != '' }}
