@@ -21,6 +21,7 @@ jobs:
         run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
+        if: ${{ fromJSON(github.event.inputs.params).ruby != '' }}
         with:
           ruby-version: '3.3'
           bundler-cache: true
