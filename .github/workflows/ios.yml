@@ -43,9 +43,11 @@ jobs:
         run: yarn install --frozen-lockfile
       - name: Pod Repo
         run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git
+      - name: Clean Podfile.lock
+        run: rm -rf ./input/ios/Podfile.lock
       - name: Pod install
         working-directory: input/ios
-        run: pod install --repo-update
+        run: pod install
       - name: Download Export Plist
         run: curl --output export.plist "https://appcenterq.vercel.app/ios-export"
       - name: Build IPA
