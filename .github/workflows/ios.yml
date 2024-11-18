@@ -23,8 +23,10 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
-          bundler-cache: true
-          working-directory: ./input/
+          bundler-cache: false
+      - name: Bundle Install
+        run: bundle install
+        working-directory: ./input
       - name: Setup Node.js environment
         uses: actions/setup-node@v4.0.4
         if: ${{ fromJSON(github.event.inputs.params).node != '' }}
