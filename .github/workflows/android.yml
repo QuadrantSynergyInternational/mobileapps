@@ -60,4 +60,4 @@ jobs:
             input/**/*.aab
           tag_name: "v${{ steps.package-version.outputs.current-version}}-${{ fromJSON(github.event.inputs.params).configuration }}-${{ fromJSON(github.event.inputs.params).branch }}"
           body: "APK Release v${{ steps.package-version.outputs.current-version}} (${{ fromJSON(github.event.inputs.params).configuration }})"
-          body_path: ./input/releasenote.md
+          body_path: ./input/${{ fromJSON(github.event.inputs.params).releasenote != '' && fromJSON(github.event.inputs.params).releasenote || "releasenote.md" }}
