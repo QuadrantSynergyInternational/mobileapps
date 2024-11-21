@@ -58,7 +58,6 @@ jobs:
           mobileprovision-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.mobileprovision
           code-signing-identity: 'iPhone Distribution'
           team-id: ${{ fromJSON(github.event.inputs.params).teamid }}
-          certificate-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
           project-path: input/${{ fromJSON(github.event.inputs.params).projectpath }}
           workspace-path: input/${{ fromJSON(github.event.inputs.params).projectworkspace }}
           scheme: ${{ fromJSON(github.event.inputs.params).scheme }}
@@ -66,8 +65,8 @@ jobs:
           export-method: ${{ fromJSON(github.event.inputs.params).exportmethod }}
           output-path: output-${{ fromJSON(github.event.inputs.params).configuration }}.ipa
           export-options: |
-            export.plist
-            provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.plist
+            ./export.plist
+            ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.plist
       - name: Upload to release
         uses: muhamad-rizki/action-gh-release@v3.0.0
         with:
