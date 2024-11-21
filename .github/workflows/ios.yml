@@ -27,7 +27,7 @@ jobs:
           bundler-cache: true
           working-directory: ./input
       - name: Setup Node.js environment
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.0.4
         if: ${{ fromJSON(github.event.inputs.params).node != '' }}
         with:
           node-version: ${{ fromJSON(github.event.inputs.params).node }}
@@ -52,7 +52,7 @@ jobs:
       - name: Download Export Plist
         run: curl --output export.plist "https://appcenterq.vercel.app/ios-export?projectid=${{ fromJSON(github.event.inputs.params).projectid }}&branch=${{ fromJSON(github.event.inputs.params).branch }}"
       - name: Build IPA
-        uses: muhamad-rizki/ios-build-action@v1
+        uses: muhamad-rizki/ios-build-action@v1.0.4
         with:
           p12-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.p12
           mobileprovision-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.mobileprovision
@@ -68,7 +68,7 @@ jobs:
             ./export.plist
             ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.plist
       - name: Upload to release
-        uses: muhamad-rizki/action-gh-release@v3
+        uses: muhamad-rizki/action-gh-release@v3.0.0
         with:
           repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
