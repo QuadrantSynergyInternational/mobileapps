@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Logging
         run: |
-          curl -L -X POST \
+          curl -L -X POST --fail-with-body \
           -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
           https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log?wf_id=${{ github.run_id }}
       - name: Clone Repo
@@ -50,7 +50,7 @@ jobs:
         working-directory: input/ios
         run: pod install
       - name: Download Export Plist
-        run: curl --output export.plist "https://appcenterq.vercel.app/ios-export?projectid=${{ fromJSON(github.event.inputs.params).projectid }}&branch=${{ fromJSON(github.event.inputs.params).branch }}"
+        run: curl --fail-with-body --output export.plist "https://appcenterq.vercel.app/ios-export?projectid=${{ fromJSON(github.event.inputs.params).projectid }}&branch=${{ fromJSON(github.event.inputs.params).branch }}"
       - name: Build IPA
         uses: muhamad-rizki/ios-build-action@v1.0.6
         with:
