@@ -33,6 +33,13 @@ jobs:
           node-version: ${{ fromJSON(github.event.inputs.params).node }}
           cache: 'yarn'
           cache-dependency-path: ./input/yarn.lock
+      - name: Install Watchman
+        run: |
+          if ! watchman --version; then
+            brew install watchman
+          else
+            echo "Watchman is already installed."
+          fi
       - name: Get Apps Version
         id: package-version
         working-directory: input
