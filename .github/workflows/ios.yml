@@ -45,7 +45,7 @@ jobs:
           echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
       - name: Yarn Install
         working-directory: input
-        run: yarn install --frozen-lockfile
+        run: yarn install
       - name: Pod Repo
         run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git
       - name: Clean Podfile.lock
