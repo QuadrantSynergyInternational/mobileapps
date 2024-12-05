@@ -1,0 +1,63 @@
+name: Resign IPA
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        type: string
+        description: IPA URL
+        required: true
+      branch:
+        type: choice
+        description: Branch to use
+        required: true
+        options: 
+          - master-dev
+          - master-uat
+      projectid:
+        type: string
+        description: Project ID
+        required: true
+      releaseTo:
+        type: string
+        description: Release To
+        required: true
+      configuration:
+        type: choice
+        description: Release configuration
+        required: true
+        options:
+          - Release
+          - Debug
+      version:
+        type: string
+        required: true
+        description: Apps Version
+jobs:
+  build:
+    runs-on: macOS-latest
+    steps:
+      - name: Logging
+        run: |
+          curl -L -X POST --fail-with-body \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/trigger-log?wf_id=${{ github.run_id }}
+      - name: Clone Provision
+        run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
+      - name: Download IPA
+        run: curl --fail-with-body --output output.ipa ${{ github.event.inputs.url }}"
+      - name: Build IPA
+        uses: muhamad-rizki/ios-build-action@v1
+        with:
+          p12-path: ./provision/${{ github.event.inputs.projectid }}/${{ github.event.inputs.branch }}.p12
+          mobileprovision-path: ./provision/${{ github.event.inputs.projectid }}/${{ github.event.inputs.branch }}.mobileprovision
+          code-signing-identity: 'iPhone Distribution'
+          resign: true
+          ipa-path: ./output.ipa
+      - name: Upload to release
+        uses: muhamad-rizki/action-gh-release@v3.0.0
+        with:
+          repository: ${{ github.event.inputs.releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: |
+            output.ipa
+          tag_name: "v${{ github.event.inputs.version }}-${{ github.event.inputs.configuration }}-${{ github.event.inputs.branch }}"
