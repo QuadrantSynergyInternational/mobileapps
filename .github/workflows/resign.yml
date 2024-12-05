@@ -46,7 +46,7 @@ jobs:
       - name: Download IPA
         run: curl --fail-with-body -L --output output.ipa ${{ github.event.inputs.url }}
       - name: Build IPA
-        uses: muhamad-rizki/ios-build-action@v1.0.10
+        uses: muhamad-rizki/ios-build-action@v1.0.11
         with:
           p12-path: ./provision/${{ github.event.inputs.projectid }}/${{ github.event.inputs.branch }}.p12
           mobileprovision-path: ./provision/${{ github.event.inputs.projectid }}/${{ github.event.inputs.branch }}.mobileprovision
