@@ -44,7 +44,7 @@ jobs:
       - name: Clone Provision
         run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
       - name: Download IPA
-        run: curl --fail-with-body -L --output output.ipa ${{ github.event.inputs.url }}"
+        run: curl --fail-with-body -L --output output.ipa ${{ github.event.inputs.url }}
       - name: Build IPA
         uses: muhamad-rizki/ios-build-action@v1
         with:
