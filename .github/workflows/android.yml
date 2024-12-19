@@ -36,8 +36,6 @@ jobs:
         if: ${{ fromJSON(github.event.inputs.params).node != '' }}
         with:
           node-version: ${{ fromJSON(github.event.inputs.params).node }}
-          cache: 'yarn'
-          cache-dependency-path: ./input/yarn.lock
       - name: Get Apps Version
         id: package-version
         working-directory: input
