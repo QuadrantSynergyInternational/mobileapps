@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Logging
         run: |
-          curl -L -X POST --fail-with-body \
+          curl -L -X POST \
           -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
           https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log?wf_id=${{ github.run_id }}
       - name: Clone Repo
