@@ -8,11 +8,11 @@ jobs:
     steps:
       - name: Delete workflow runs
         run: |
-          curl -L -X GET --fail-with-body \
+          curl -L -X GET \
           -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
           https://${{ secrets.APPCENTER_DOMAIN }}/workflow-clean
       - name: Logging
         run: |
-          curl -L -X POST --fail-with-body \
+          curl -L -X POST \
           -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
           https://${{ secrets.APPCENTER_DOMAIN }}/projects/wfcleaner/trigger-log?wf_id=${{ github.run_id }}
