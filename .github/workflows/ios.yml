@@ -70,6 +70,7 @@ jobs:
             ./export.plist
             ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.plist
       - name: Upload to release
+        id: release
         uses: muhamad-rizki/action-gh-release@v3.0.0
         with:
           repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
@@ -81,3 +82,10 @@ jobs:
           tag_name: "v${{ steps.package-version.outputs.current-version}}-${{ fromJSON(github.event.inputs.params).configuration }}-${{ fromJSON(github.event.inputs.params).branch }}"
           body: "IPA Release v${{ steps.package-version.outputs.current-version}} (${{ fromJSON(github.event.inputs.params).configuration }})"
           body_path: ./input/${{ fromJSON(github.event.inputs.params).releasenote != '' && fromJSON(github.event.inputs.params).releasenote || 'releasenote.md' }}
+      - name: Update DB
+        run: |
+          curl -s -L -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          -H "Content-Type: application/json" \
+          -d '{"releaseid":"${{ steps.release.outputs.id }}", "assets":"${{ steps.release.outputs.assets }}"}' \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log?wf_id=${{ github.run_id }}
