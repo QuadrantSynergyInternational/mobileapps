@@ -59,3 +59,8 @@ jobs:
           tag_name: "v${{ steps.package-version.outputs.current-version}}-${{ fromJSON(github.event.inputs.params).configuration }}-${{ fromJSON(github.event.inputs.params).branch }}"
           body: "APK Release v${{ steps.package-version.outputs.current-version}} (${{ fromJSON(github.event.inputs.params).configuration }})"
           body_path: ./input/${{ fromJSON(github.event.inputs.params).releasenote != '' && fromJSON(github.event.inputs.params).releasenote || 'releasenote.md' }}
+      - name: Update DB
+        run: |
+          curl -s -L -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/release?id=${{ steps.release.outputs.id }}
