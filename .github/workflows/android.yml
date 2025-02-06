@@ -36,6 +36,12 @@ jobs:
         if: ${{ fromJSON(github.event.inputs.params).node != '' }}
         with:
           node-version: ${{ fromJSON(github.event.inputs.params).node }}
+      - name: Initialize watchman
+        run: eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+      - name: Install & Cache Watchman
+        uses: gerlero/brew-install@v1
+        with:
+          packages: watchman
       - name: Get Apps Version
         id: package-version
         working-directory: input
