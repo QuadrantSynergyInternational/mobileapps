@@ -8,7 +8,7 @@ on:
         required: true
 jobs:
   build:
-    runs-on: macOS-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Logging
         run: |
