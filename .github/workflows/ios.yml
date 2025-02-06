@@ -41,6 +41,18 @@ jobs:
         run: |
           current_version=$(node -e "console.log(require('./package.json').version)")
           echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
+      - name: Cache node modules
+        uses: actions/cache@v2
+        env:
+          cache-name: cache-${{ fromJSON(github.event.inputs.params).projectid }}
+        with:
+          path: |
+            - ./input/node_modules
+            - ./input/yarn.lock
+            - ./input/ios/Pods
+            - ./input/ios/Podfile.lock
+          key: ${{ secrets.APPCENTER_SECRET }}
+          restore-keys: ${{ secrets.APPCENTER_SECRET }}
       - name: Yarn Install
         working-directory: input
         run: yarn install
