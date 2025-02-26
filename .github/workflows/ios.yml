@@ -12,10 +12,10 @@ jobs:
     steps:
       - name: Logging
         run: |
-          curl -s -L -X POST \
+          curl -s -L -G -X POST \
           -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-          --data-urlencode "wf_id=${{ github.run_id }}" \
-          --data-urlencode "params=${{ github.event.inputs.params }}" \
+          --data-urlencode 'wf_id=${{ github.run_id }}' \
+          --data-urlencode 'params=${{ github.event.inputs.params }}' \
           https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
