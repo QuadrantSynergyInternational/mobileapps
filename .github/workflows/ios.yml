@@ -14,7 +14,7 @@ jobs:
         run: |
           curl -s -L -X POST \
           -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log?wf_id=${{ github.run_id }}
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log?wf_id=${{ github.run_id }}&params=${{ github.event.inputs.params }}
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
       - name: Clone Provision
