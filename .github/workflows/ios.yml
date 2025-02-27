@@ -56,6 +56,7 @@ jobs:
           --data-urlencode 'params=${{ github.event.inputs.params }}' \
           --data-urlencode 'uniqueId=${{ fromJSON(github.event.inputs.params).uniqueId }}' \
           --data-urlencode 'version=${{ steps.package-version.outputs.current-version }}' \
+          --data-urlencode 'platform=android' \
           https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log
       - name: Yarn Install
         working-directory: input
