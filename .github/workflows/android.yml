@@ -12,6 +12,22 @@ jobs:
     steps:
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
+      - name: Get Apps Version
+        id: package-version
+        working-directory: input
+        run: |
+          current_version=$(node -e "console.log(require('./package.json').version)")
+          echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
+      - name: Logging
+        run: |
+          curl -s -L -G -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          --data-urlencode 'wf_id=${{ github.run_id }}' \
+          --data-urlencode 'params=${{ github.event.inputs.params }}' \
+          --data-urlencode 'uniqueId=${{ fromJSON(github.event.inputs.params).uniqueId }}' \
+          --data-urlencode 'version=${{ steps.package-version.outputs.current-version }}' \
+          --data-urlencode 'platform=android' \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log
       - name: Setup Java JDK
         uses: actions/setup-java@v4.4.0
         if: ${{ fromJSON(github.event.inputs.params).java != '' }}
@@ -35,12 +51,6 @@ jobs:
         run: |
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           brew install watchman
-      - name: Get Apps Version
-        id: package-version
-        working-directory: input
-        run: |
-          current_version=$(node -e "console.log(require('./package.json').version)")
-          echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
       # - name: Cache node modules
       #   uses: actions/cache@v2
       #   env:
@@ -53,16 +63,6 @@ jobs:
       #       - ./input/ios/Podfile.lock
       #     key: ${{ secrets.APPCENTER_SECRET }}
       #     restore-keys: ${{ secrets.APPCENTER_SECRET }}
-      - name: Logging
-        run: |
-          curl -s -L -G -X POST \
-          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-          --data-urlencode 'wf_id=${{ github.run_id }}' \
-          --data-urlencode 'params=${{ github.event.inputs.params }}' \
-          --data-urlencode 'uniqueId=${{ fromJSON(github.event.inputs.params).uniqueId }}' \
-          --data-urlencode 'version=${{ steps.package-version.outputs.current-version }}' \
-          --data-urlencode 'platform=android' \
-          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log
       - name: Yarn Install
         working-directory: input
         run: yarn install
