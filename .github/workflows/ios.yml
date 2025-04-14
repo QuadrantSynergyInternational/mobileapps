@@ -88,7 +88,7 @@ jobs:
             ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.plist
       - name: Upload to release
         id: release
-        uses: muhamad-rizki/action-gh-release@v3.0.0
+        uses: muhamad-rizki/action-gh-release@v3.0.1
         with:
           repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}

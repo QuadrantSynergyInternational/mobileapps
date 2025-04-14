@@ -71,7 +71,7 @@ jobs:
         run: ./gradlew assemble${{ fromJSON(github.event.inputs.params).flavor }}${{ fromJSON(github.event.inputs.params).configuration }} ${{ fromJSON(github.event.inputs.params).gradlecmd }}
       - name: Upload to release
         id: release
-        uses: muhamad-rizki/action-gh-release@v3.0.0
+        uses: muhamad-rizki/action-gh-release@v3.0.1
         with:
           repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}

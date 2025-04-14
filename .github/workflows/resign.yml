@@ -54,7 +54,7 @@ jobs:
           resign: true
           ipa-path: ./output.ipa
       - name: Upload to release
-        uses: muhamad-rizki/action-gh-release@v3.0.0
+        uses: muhamad-rizki/action-gh-release@v3.0.1
         with:
           repository: ${{ github.event.inputs.releaseTo }}
           token: ${{ secrets.GH_PAT }}
