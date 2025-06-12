@@ -30,6 +30,9 @@ jobs:
           --data-urlencode 'version=${{ steps.package-version.outputs.current-version }}' \
           --data-urlencode 'platform=ios' \
           https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log
+      - name: Validate P12
+        run: |
+          security import ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.p12 -k '/Users/runner/Library/Keychains/ios-build.keychain-db' -P "" -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productbuild -T /usr/bin/productsign
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         if: ${{ fromJSON(github.event.inputs.params).ruby != '' }}
