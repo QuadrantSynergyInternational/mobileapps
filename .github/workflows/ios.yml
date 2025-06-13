@@ -33,7 +33,7 @@ jobs:
       - name: Validate P12
         run: |
           set -euo pipefail
-          P12_FILE="./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.p12"      
+          P12_FILE="./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.p12"
           echo "🔧 Creating temporary keychain..."
           security create-keychain -p "" temp.keychain
           
@@ -41,7 +41,7 @@ jobs:
           security unlock-keychain -p "" temp.keychain
           
           echo "🔍 Validating P12 import..."
-          if security -v import "$P12_FILE" -k temp.keychain -P "" \
+          if security import "$P12_FILE" -k temp.keychain -P "${{ fromJSON(github.event.inputs.params).p12pass || '' }}" \
                -T /usr/bin/codesign \
                -T /usr/bin/security \
                -T /usr/bin/productbuild \
@@ -102,6 +102,7 @@ jobs:
           mobileprovision-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.mobileprovision
           code-signing-identity: 'iPhone Distribution'
           team-id: ${{ fromJSON(github.event.inputs.params).teamid }}
+          certificate-password: ${{ fromJSON(github.event.inputs.params).p12pass || '' }}
           project-path: input/${{ fromJSON(github.event.inputs.params).projectpath }}
           workspace-path: input/${{ fromJSON(github.event.inputs.params).projectworkspace }}
           scheme: ${{ fromJSON(github.event.inputs.params).scheme }}
