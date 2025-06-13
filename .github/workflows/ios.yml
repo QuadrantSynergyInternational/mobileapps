@@ -41,7 +41,7 @@ jobs:
           security unlock-keychain -p "" temp.keychain
           
           echo "🔍 Validating P12 import..."
-          if security import "$P12_FILE" -k temp.keychain -P "" \
+          if security -v import "$P12_FILE" -k temp.keychain -P "" \
                -T /usr/bin/codesign \
                -T /usr/bin/security \
                -T /usr/bin/productbuild \
