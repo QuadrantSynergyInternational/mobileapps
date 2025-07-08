@@ -8,7 +8,7 @@ on:
         required: true
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-latest
     steps:
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
@@ -96,7 +96,7 @@ jobs:
       - name: Download Export Plist
         run: curl --fail-with-body --output export.plist "https://appcenterq.vercel.app/ios-export?projectid=${{ fromJSON(github.event.inputs.params).projectid }}&branch=${{ fromJSON(github.event.inputs.params).branch }}"
       - name: Build IPA
-        uses: muhamad-rizki/ios-build-action@v1
+        uses: muhamad-rizki/ios-build-action@v1.0.12
         with:
           p12-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.p12
           mobileprovision-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.mobileprovision
@@ -109,6 +109,7 @@ jobs:
           configuration: ${{ fromJSON(github.event.inputs.params).configuration }}
           export-method: ${{ fromJSON(github.event.inputs.params).exportmethod }}
           output-path: output-${{ fromJSON(github.event.inputs.params).configuration }}.ipa
+          xcode-path: ${{ fromJSON(github.event.inputs.params).xcodepath || '' }}
           export-options: |
             ./export.plist
             ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.plist
