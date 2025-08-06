@@ -86,6 +86,8 @@ jobs:
           curl -s -L -X POST \
           -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
           https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/release?id=${{ steps.release.outputs.id }}
+      - name: Clean Up
+        run: rm -rf ./input/node_modules
       - name: Upload Source Maps
         id: release-maps
         uses: muhamad-rizki/action-gh-release@v3.0.1
