@@ -131,3 +131,14 @@ jobs:
           curl -s -L -X POST \
           -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
           https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/release?id=${{ steps.release.outputs.id }}
+      - name: Upload Source Maps
+        id: release-maps
+        uses: muhamad-rizki/action-gh-release@v3.0.1
+        with:
+          repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: |
+            ./**/mapping.txt
+            ./**/*.dSYM
+            ./**/*.map
+          tag_name: "v${{ steps.package-version.outputs.current-version}}-${{ fromJSON(github.event.inputs.params).configuration }}-${{ fromJSON(github.event.inputs.params).branch }}"
