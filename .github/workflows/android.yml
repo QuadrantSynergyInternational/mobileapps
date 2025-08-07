@@ -95,7 +95,7 @@ jobs:
           repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
           files: |
-            ./**/mapping.txt
-            ./**/*.dSYM
-            ./**/*.map
+            ./input/android/**/mapping.txt
+            ./input/android/**/*.bundle.map
+            ./**/*.dSYM.zip
           tag_name: "v${{ steps.package-version.outputs.current-version}}-${{ fromJSON(github.event.inputs.params).configuration }}-${{ fromJSON(github.event.inputs.params).branch }}"
