@@ -88,8 +88,8 @@ jobs:
         run: yarn install
       - name: Pod Repo
         run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git
-      - name: Clean Podfile.lock
-        run: rm -rf ./input/ios/Podfile.lock
+      # - name: Clean Podfile.lock
+      #   run: rm -rf ./input/ios/Podfile.lock
       - name: Pod install
         working-directory: input/ios
         run: pod install
