@@ -8,7 +8,7 @@ on:
         required: true
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
