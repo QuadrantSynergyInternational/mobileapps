@@ -49,7 +49,7 @@ jobs:
           node-version: ${{ fromJSON(github.event.inputs.params).node }}
       - name: Initialize watchman
         run: |
-          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          # eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           brew install watchman
       # - name: Cache node modules
       #   uses: actions/cache@v2
