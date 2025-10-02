@@ -8,7 +8,7 @@ on:
         required: true
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15-large
     steps:
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
