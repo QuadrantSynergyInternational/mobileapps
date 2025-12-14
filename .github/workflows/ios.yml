@@ -90,9 +90,28 @@ jobs:
         run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git
       # - name: Clean Podfile.lock
       #   run: rm -rf ./input/ios/Podfile.lock
+      - name: Detect New Architecture
+        id: detect-arch
+        working-directory: input
+        run: |
+          NEW_ARCH=$(grep -E "^newArchEnabled=true" android/gradle.properties || true)
+          if [ -n "$NEW_ARCH" ]; then
+            echo "enabled=true" >> $GITHUB_OUTPUT
+            echo "React Native New Architecture ENABLED"
+          else
+            echo "enabled=false" >> $GITHUB_OUTPUT
+            echo "React Native New Architecture DISABLED"
+          fi
       - name: Pod install
         working-directory: input/ios
-        run: pod install
+        run: |
+          if [ "${{ steps.detect-arch.outputs.enabled }}" = "true" ]; then
+            echo "⚙️ Enabling iOS New Architecture"
+            export RCT_NEW_ARCH_ENABLED=1
+          else
+            echo "⚙️ Using Legacy Architecture"
+          fi
+          pod install
       - name: Download Export Plist
         run: curl --fail-with-body --output export.plist "https://appcenterq.vercel.app/ios-export?projectid=${{ fromJSON(github.event.inputs.params).projectid }}&branch=${{ fromJSON(github.event.inputs.params).branch }}"
       - name: Build IPA
