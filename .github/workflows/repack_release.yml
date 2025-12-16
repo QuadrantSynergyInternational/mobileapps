@@ -39,6 +39,22 @@ on:
         description: 'Password for the P12 certificate. Required for iOS.'
         required: false
         type: string
+      android_keystore_path:
+        description: 'Path to Android Keystore file (relative to source root). Required for Android.'
+        required: false
+        type: string
+      android_keystore_password:
+        description: 'Android Keystore Password'
+        required: false
+        type: string
+      android_key_alias:
+        description: 'Android Key Alias'
+        required: false
+        type: string
+      android_key_password:
+        description: 'Android Key Password'
+        required: false
+        type: string
       apk_filename:
         description: 'Name of APK asset to download (Android)'
         required: false
@@ -49,7 +65,7 @@ on:
         required: false
         default: 'output-Release.ipa'
         type: string
-
+      
 jobs:
   repack_resign:
     runs-on: macos-latest
@@ -202,11 +218,10 @@ jobs:
         if: inputs.platform == 'android'
         env:
           APK_NAME: ${{ inputs.apk_filename }}
-          # Secrets required for signing (Add these to your repository secrets)
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEYSTORE_PATH: ${{ inputs.android_keystore_path }}
+          KEYSTORE_PASSWORD: ${{ inputs.android_keystore_password }}
+          KEY_ALIAS: ${{ inputs.android_key_alias }}
+          KEY_PASSWORD: ${{ inputs.android_key_password }}
         run: |
           cd release_download
           
@@ -229,16 +244,16 @@ jobs:
           cd ..
           
           # Resign
-          if [[ -n "$KEYSTORE_BASE64" ]]; then
-             echo "Secrets found, starting signing process..."
-             echo "$KEYSTORE_BASE64" | base64 --decode > my-upload-key.keystore
+          FULL_KEYSTORE_PATH="../source_code/$KEYSTORE_PATH"
+          if [[ -n "$KEYSTORE_PATH" && -f "$FULL_KEYSTORE_PATH" ]]; then
+             echo "Keystore found at $FULL_KEYSTORE_PATH"
              
              # Locate apksigner
              ANDROID_BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -1)
              APKSIGNER="$ANDROID_BUILD_TOOLS/apksigner"
              echo "Using apksigner at $APKSIGNER"
              
-             "$APKSIGNER" sign --ks my-upload-key.keystore \
+             "$APKSIGNER" sign --ks "$FULL_KEYSTORE_PATH" \
                --ks-key-alias "$KEY_ALIAS" \
                --ks-pass "pass:$KEYSTORE_PASSWORD" \
                --key-pass "pass:$KEY_PASSWORD" \
@@ -247,9 +262,8 @@ jobs:
                
              echo "Resigned successfully."
           else
-             echo "WARNING: Signing secrets (ANDROID_KEYSTORE_BASE64) not provided."
-             echo "APK is UNSIGNED."
-             mv repacked-unsigned.apk resigned-output.apk
+             echo "ERROR: Keystore not found at $FULL_KEYSTORE_PATH"
+             exit 1
           fi
 
       - name: Upload Artifact
