@@ -1,0 +1,261 @@
+name: Repack and Resign Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: 'Source Repository URL (e.g. owner/repo) for React Native code'
+        required: true
+        type: string
+      source_branch:
+        description: 'Source Branch to checkout'
+        required: true
+        default: 'main'
+        type: string
+      release_repo:
+        description: 'Release Repository (e.g. owner/repo) containing the IPA/APK'
+        required: true
+        type: string
+      release_tag:
+        description: 'Release Tag to download assets from'
+        required: true
+        type: string
+      platform:
+        description: 'Target Platform'
+        required: true
+        type: choice
+        options:
+          - ios
+          - android
+      project_id:
+        description: 'Project ID (folder name in provision repo). Required for iOS.'
+        required: false
+        type: string
+      profile_name:
+        description: 'Profile/Certificate Name (filename without extension). Defaults to source_branch if empty.'
+        required: false
+        type: string
+      p12_password:
+        description: 'Password for the P12 certificate. Required for iOS.'
+        required: false
+        type: string
+      apk_filename:
+        description: 'Name of APK asset to download (Android)'
+        required: false
+        default: 'app-release.apk'
+        type: string
+      ipa_filename:
+        description: 'Name of IPA asset to download (iOS)'
+        required: false
+        default: 'output-Release.ipa'
+        type: string
+
+jobs:
+  repack_resign:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repo }}
+          ref: ${{ inputs.source_branch }}
+          token: ${{ secrets.GH_PAT }}
+          path: source_code
+
+      - name: Clone Provision Repo
+        if: inputs.platform == 'ios'
+        run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'yarn'
+          cache-dependency-path: source_code/yarn.lock
+
+      - name: Install Dependencies
+        working-directory: source_code
+        run: yarn install
+
+      - name: Bundle React Native (iOS)
+        if: inputs.platform == 'ios'
+        working-directory: source_code
+        run: |
+          mkdir -p ../bundle_output
+          npx react-native bundle \
+            --platform ios \
+            --dev false \
+            --entry-file index.js \
+            --bundle-output ../bundle_output/main.jsbundle \
+            --assets-dest ../bundle_output
+
+      - name: Bundle React Native (Android)
+        if: inputs.platform == 'android'
+        working-directory: source_code
+        run: |
+          mkdir -p ../bundle_output
+          npx react-native bundle \
+            --platform android \
+            --dev false \
+            --entry-file index.js \
+            --bundle-output ../bundle_output/index.android.bundle \
+            --assets-dest ../bundle_output
+
+      - name: Download Release Asset
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          mkdir -p release_download
+          if [ "${{ inputs.platform }}" == "ios" ]; then
+            gh release download ${{ inputs.release_tag }} \
+              -R ${{ inputs.release_repo }} \
+              -p "${{ inputs.ipa_filename }}" \
+              -D release_download
+          else
+            gh release download ${{ inputs.release_tag }} \
+              -R ${{ inputs.release_repo }} \
+              -p "${{ inputs.apk_filename }}" \
+              -D release_download
+          fi
+
+      - name: Process IPA (Unpack, Replace, Resign)
+        if: inputs.platform == 'ios'
+        env:
+          IPA_NAME: ${{ inputs.ipa_filename }}
+          PROJECT_ID: ${{ inputs.project_id }}
+          PROFILE_NAME: ${{ inputs.profile_name || inputs.source_branch }}
+          P12_PASSWORD: ${{ inputs.p12_password }}
+          KEYCHAIN_PASSWORD: "tempKeychainPassword"
+        run: |
+          cd release_download
+          
+          # Unpack
+          echo "Unpacking $IPA_NAME..."
+          unzip -q "$IPA_NAME" -d unpacked_ipa
+          
+          # Find the .app folder
+          APP_NAME=$(ls unpacked_ipa/Payload | grep .app | head -n 1)
+          echo "Found app: $APP_NAME"
+          
+          # Replace bundle
+          echo "Replacing main.jsbundle..."
+          cp ../bundle_output/main.jsbundle "unpacked_ipa/Payload/$APP_NAME/main.jsbundle"
+          
+          # Replace assets (if they exist)
+          if [ -d "../bundle_output/assets" ]; then
+             echo "Updating assets..."
+             cp -R ../bundle_output/assets/* "unpacked_ipa/Payload/$APP_NAME/assets/" || true
+          fi
+
+          # Paths to provision files
+          # provision repo is cloned in the root, so path is ../provision
+          P12_PATH="../provision/$PROJECT_ID/$PROFILE_NAME.p12"
+          MOBILEPROVISION_PATH="../provision/$PROJECT_ID/$PROFILE_NAME.mobileprovision"
+
+          if [[ -f "$P12_PATH" && -f "$MOBILEPROVISION_PATH" ]]; then
+            echo "Certificates found at $P12_PATH and $MOBILEPROVISION_PATH"
+            echo "Starting resignation process..."
+
+            # Create temporary keychain
+            security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+            security set-keychain-settings -t 3600 -l ~/Library/Keychains/build.keychain
+
+            # Import Certificate
+            security import "$P12_PATH" -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+            # Import Provisioning Profile
+            # Embed the new mobileprovision
+            cp "$MOBILEPROVISION_PATH" "unpacked_ipa/Payload/$APP_NAME/embedded.mobileprovision"
+            
+            # Find Identity
+            IDENTITY=$(security find-identity -v -p codesigning build.keychain | head -1 | grep -o '"[^"]*"' | tr -d '"')
+            echo "Signing with Identity: $IDENTITY"
+
+            # Resign
+            # Simply forcing codesign might preserve existing entitlements if we don't specify --entitlements.
+            # To be robust, we should probably extract entitlements from the new mobileprovision or the old binary, but standard codesign often handles this.
+            # If explicit entitlements are needed, we can extract them from the mobileprovision:
+            # security cms -D -i "$MOBILEPROVISION_PATH" > provision.plist
+            # /usr/libexec/PlistBuddy -x -c 'Print :Entitlements' provision.plist > entitlements.plist
+            # /usr/bin/codesign --force --sign "$IDENTITY" --entitlements entitlements.plist ...
+            
+            # Simple Signing (Using embedded entitlements)
+            /usr/bin/codesign --force --sign "$IDENTITY" --keychain build.keychain "unpacked_ipa/Payload/$APP_NAME"
+            
+            echo "Resigned successfully."
+          else
+            echo "ERROR: Signing files not found!"
+            echo "Checked: $P12_PATH"
+            echo "Checked: $MOBILEPROVISION_PATH"
+            exit 1
+          fi
+          
+          # Repack
+          cd unpacked_ipa
+          zip -qry ../resigned-output.ipa Payload
+          cd ..
+
+      - name: Process APK (Unpack, Replace, Resign)
+        if: inputs.platform == 'android'
+        env:
+          APK_NAME: ${{ inputs.apk_filename }}
+          # Secrets required for signing (Add these to your repository secrets)
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd release_download
+          
+          # Unpack
+          echo "Unpacking $APK_NAME..."
+          unzip -q "$APK_NAME" -d unpacked_apk
+          
+          # Replace Bundle
+          echo "Replacing index.android.bundle..."
+          # Ensure target directory exists (it should in a valid APK)
+          mkdir -p unpacked_apk/assets
+          cp ../bundle_output/index.android.bundle unpacked_apk/assets/index.android.bundle
+          
+          # Remove old signature
+          rm -rf unpacked_apk/META-INF
+          
+          # Repack
+          cd unpacked_apk
+          zip -qr ../repacked-unsigned.apk .
+          cd ..
+          
+          # Resign
+          if [[ -n "$KEYSTORE_BASE64" ]]; then
+             echo "Secrets found, starting signing process..."
+             echo "$KEYSTORE_BASE64" | base64 --decode > my-upload-key.keystore
+             
+             # Locate apksigner
+             ANDROID_BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -1)
+             APKSIGNER="$ANDROID_BUILD_TOOLS/apksigner"
+             echo "Using apksigner at $APKSIGNER"
+             
+             "$APKSIGNER" sign --ks my-upload-key.keystore \
+               --ks-key-alias "$KEY_ALIAS" \
+               --ks-pass "pass:$KEYSTORE_PASSWORD" \
+               --key-pass "pass:$KEY_PASSWORD" \
+               --out resigned-output.apk \
+               repacked-unsigned.apk
+               
+             echo "Resigned successfully."
+          else
+             echo "WARNING: Signing secrets (ANDROID_KEYSTORE_BASE64) not provided."
+             echo "APK is UNSIGNED."
+             mv repacked-unsigned.apk resigned-output.apk
+          fi
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: resigned-app-${{ inputs.platform }}
+          path: |
+            release_download/resigned-output.ipa
+            release_download/resigned-output.apk
