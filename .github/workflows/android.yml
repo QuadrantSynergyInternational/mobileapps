@@ -48,9 +48,9 @@ jobs:
         with:
           node-version: ${{ fromJSON(github.event.inputs.params).node }}
       - name: Initialize watchman
-        run: |
-          # eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          brew install watchman
+        uses: ConorMacBride/install-package@v1
+        with:
+          brew: watchman
       # - name: Cache node modules
       #   uses: actions/cache@v2
       #   env:

@@ -68,9 +68,9 @@ jobs:
         with:
           node-version: ${{ fromJSON(github.event.inputs.params).node }}
       - name: Install & Cache Watchman
-        uses: gerlero/brew-install@v1
+        uses: ConorMacBride/install-package@v1
         with:
-          packages: watchman
+          brew: watchman
       # - name: Cache node modules
       #   uses: actions/cache@v2
       #   env:
