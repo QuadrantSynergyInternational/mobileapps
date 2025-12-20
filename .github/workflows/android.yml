@@ -8,7 +8,7 @@ on:
         required: true
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
@@ -68,7 +68,7 @@ jobs:
         run: yarn install
       - name: Gradle Build
         working-directory: input/android
-        run: ./gradlew --parallel --no-daemon assemble${{ fromJSON(github.event.inputs.params).flavor }}${{ fromJSON(github.event.inputs.params).configuration }} ${{ fromJSON(github.event.inputs.params).gradlecmd }}
+        run: ./gradlew assemble${{ fromJSON(github.event.inputs.params).flavor }}${{ fromJSON(github.event.inputs.params).configuration }} ${{ fromJSON(github.event.inputs.params).gradlecmd }}
       - name: Upload to release
         id: release
         uses: muhamad-rizki/action-gh-release@v3.0.1
