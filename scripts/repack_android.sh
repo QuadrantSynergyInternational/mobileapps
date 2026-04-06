@@ -123,17 +123,24 @@ src_apk, dst_apk, bundle_path, rn_out = sys.argv[1:5]
 #   res/<anything>               -> from rn_out/res/  (drawable updates)
 rn_files = {}
 
-def collect(base_dir, apk_prefix):
+def collect_res(base_dir):
     if not os.path.isdir(base_dir):
         return
-    for root, _, files in os.walk(base_dir):
-        for f in files:
-            full = os.path.join(root, f)
-            rel  = apk_prefix + os.path.relpath(full, base_dir).replace(os.sep, '/')
-            rn_files[rel] = full
+    # In Android, RN outputs assets (drawable-*, raw, etc) directly into the --assets-dest dir.
+    # In the APK, they belong strictly under the 'res/' prefix.
+    for item in os.listdir(base_dir):
+        item_dir = os.path.join(base_dir, item)
+        if os.path.isdir(item_dir):
+            for root, _, files in os.walk(item_dir):
+                for f in files:
+                    full = os.path.join(root, f)
+                    # Keep paths like `drawable-mdpi/image.png`
+                    rel_to_base = os.path.relpath(full, base_dir).replace(os.sep, '/')
+                    # Add res/ prefix for the APK structure exactly
+                    rn_files['res/' + rel_to_base] = full
 
-collect(os.path.join(rn_out, 'assets'), 'assets/')
-collect(os.path.join(rn_out, 'res'),    'res/')
+collect_res(rn_out)
+print(f'  🔍 Collected {len(rn_files)} RN generated files/assets for Android injection.')
 # The main bundle always wins regardless of --assets-dest output
 rn_files['assets/index.android.bundle'] = bundle_path
 
@@ -169,11 +176,11 @@ with zipfile.ZipFile(src_apk, 'r') as src, \
             dst.write(path, rel, compress_type=zipfile.ZIP_DEFLATED)
         added.append(rel)
 
-print(f'  ✅ Updated {len(updated)} entries: {updated}')
+print(f'  ✅ Updated {len(updated)} existing APK entries.')
 if added:
-    print(f'  ➕ Added   {len(added)} new entries: {added}')
+    print(f'  ➕ Added   {len(added)} new entries (assets/bundles).')
 if skipped:
-    print(f'  🗑️  Skipped {len(skipped)} META-INF entries')
+    print(f'  🗑️  Skipped {len(skipped)} META-INF entries (clearing old signature).')
 PYEOF
 
 # ── Align APK (4-byte alignment required; 4KB for page-aligned .so) ──────────
