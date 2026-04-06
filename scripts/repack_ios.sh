@@ -203,9 +203,18 @@ IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_NAME" \
   | head -1 | grep -o '"[^"]*"' | tr -d '"')
 echo "🔑 Signing with identity: $IDENTITY"
 
+# Extract entitlements from the provisioning profile
+echo "📜 Extracting entitlements from provisioning profile..."
+security cms -D -i "$MOBILEPROVISION_PATH" > "$RELEASE_DOWNLOAD_DIR/provision.plist"
+/usr/libexec/PlistBuddy -x -c 'Print :Entitlements' "$RELEASE_DOWNLOAD_DIR/provision.plist" > "$RELEASE_DOWNLOAD_DIR/entitlements.plist"
+
+# Remove the old signature to ensure a clean resign
+rm -rf "$RELEASE_DOWNLOAD_DIR/unpacked_ipa/Payload/$APP_NAME/_CodeSignature"
+
 /usr/bin/codesign \
   --force \
   --sign "$IDENTITY" \
+  --entitlements "$RELEASE_DOWNLOAD_DIR/entitlements.plist" \
   --keychain "$KEYCHAIN_NAME" \
   "$RELEASE_DOWNLOAD_DIR/unpacked_ipa/Payload/$APP_NAME"
 
