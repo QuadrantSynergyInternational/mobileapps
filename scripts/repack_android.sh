@@ -133,14 +133,24 @@ echo "📌 App version: $APP_VERSION"
 
 # ── Download release APK ─────────────────────────────────────────────────────
 echo ""
-echo "⬇️  Downloading APK ($APK_FILENAME) from $RELEASE_REPO@$RELEASE_TAG..."
+echo "⬇️  Downloading APK from $RELEASE_REPO@$RELEASE_TAG..."
 GH_TOKEN="$GH_TOKEN" gh release download "$RELEASE_TAG" \
   -R "$RELEASE_REPO" \
-  -p "$APK_FILENAME" \
+  -p "*.apk" \
   -D "$RELEASE_DOWNLOAD_DIR"
 
-# Resolve the actual downloaded filename (supports glob patterns like *.apk)
-DOWNLOADED_APK=$(find "$RELEASE_DOWNLOAD_DIR" -maxdepth 1 -name '*.apk' | sort | head -n 1)
+# Resolve the downloaded file.
+# If APK_FILENAME is a specific name (no wildcards), use it as a find filter.
+# Otherwise (default *.apk) pick the first APK found.
+if [[ "$APK_FILENAME" != *"*"* && "$APK_FILENAME" != *"?"* ]]; then
+  DOWNLOADED_APK=$(find "$RELEASE_DOWNLOAD_DIR" -maxdepth 1 -name "$APK_FILENAME" | head -n 1)
+  if [[ -z "$DOWNLOADED_APK" ]]; then
+    echo "⚠️  APK named '$APK_FILENAME' not found — falling back to first available APK."
+    DOWNLOADED_APK=$(find "$RELEASE_DOWNLOAD_DIR" -maxdepth 1 -name '*.apk' | sort | head -n 1)
+  fi
+else
+  DOWNLOADED_APK=$(find "$RELEASE_DOWNLOAD_DIR" -maxdepth 1 -name '*.apk' | sort | head -n 1)
+fi
 if [[ -z "$DOWNLOADED_APK" ]]; then
   echo "❌ No APK file found in $RELEASE_DOWNLOAD_DIR after download."
   exit 1

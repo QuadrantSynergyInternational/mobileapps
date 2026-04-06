@@ -195,14 +195,24 @@ echo "📌 App version: $APP_VERSION"
 
 # ── Download release IPA ─────────────────────────────────────────────────────
 echo ""
-echo "⬇️  Downloading IPA ($IPA_FILENAME) from $RELEASE_REPO@$RELEASE_TAG..."
+echo "⬇️  Downloading IPA from $RELEASE_REPO@$RELEASE_TAG..."
 GH_TOKEN="$GH_TOKEN" gh release download "$RELEASE_TAG" \
   -R "$RELEASE_REPO" \
-  -p "$IPA_FILENAME" \
+  -p "*.ipa" \
   -D "$RELEASE_DOWNLOAD_DIR"
 
-# Resolve the actual downloaded filename (supports glob patterns like *.ipa)
-DOWNLOADED_IPA=$(find "$RELEASE_DOWNLOAD_DIR" -maxdepth 1 -name '*.ipa' | head -n 1)
+# Resolve the downloaded file.
+# If IPA_FILENAME is a specific name (no wildcards), use it as a find filter.
+# Otherwise (default *.ipa) pick the first IPA found.
+if [[ "$IPA_FILENAME" != *"*"* && "$IPA_FILENAME" != *"?"* ]]; then
+  DOWNLOADED_IPA=$(find "$RELEASE_DOWNLOAD_DIR" -maxdepth 1 -name "$IPA_FILENAME" | head -n 1)
+  if [[ -z "$DOWNLOADED_IPA" ]]; then
+    echo "⚠️  IPA named '$IPA_FILENAME' not found — falling back to first available IPA."
+    DOWNLOADED_IPA=$(find "$RELEASE_DOWNLOAD_DIR" -maxdepth 1 -name '*.ipa' | head -n 1)
+  fi
+else
+  DOWNLOADED_IPA=$(find "$RELEASE_DOWNLOAD_DIR" -maxdepth 1 -name '*.ipa' | head -n 1)
+fi
 if [[ -z "$DOWNLOADED_IPA" ]]; then
   echo "❌ No IPA file found in $RELEASE_DOWNLOAD_DIR after download."
   exit 1
