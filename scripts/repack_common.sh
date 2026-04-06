@@ -109,35 +109,102 @@ common_bundle() {
       --sourcemap-output "${bundle_file}.map" \
       --assets-dest "$BUNDLE_OUTPUT_DIR"
       
-    echo "⚙️  Detecting Hermes compiler..."
-    # Locate hermesc inside the RN installation based on OS
-    OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
-    HERMESC_PATH=""
+    echo "⚙️  Detecting Hermes compiler configuration..."
     
-    if [[ "$OS_NAME" == "darwin" ]]; then
-      HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/react-native/sdks/hermesc/osx-bin/hermesc" -type f | head -n 1)
-      if [[ -z "$HERMESC_PATH" ]]; then
-        HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/@react-native/hermes-cli/osx-bin/hermesc" -type f | head -n 1)
-      fi
-    elif [[ "$OS_NAME" == "linux" ]]; then
-      HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/react-native/sdks/hermesc/linux64-bin/hermesc" -type f | head -n 1)
-      if [[ -z "$HERMESC_PATH" ]]; then
-        HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/@react-native/hermes-cli/linux64-bin/hermesc" -type f | head -n 1)
-      fi
-    fi
-
-    # Sometimes it's globally available or in another standard path
-    if [[ -z "$HERMESC_PATH" && -f "$SOURCE_DIR/node_modules/react-native/sdks/hermesc/build/bin/hermesc" ]]; then
-      HERMESC_PATH="$SOURCE_DIR/node_modules/react-native/sdks/hermesc/build/bin/hermesc"
-    fi
-
-    if [[ -n "$HERMESC_PATH" && -x "$HERMESC_PATH" ]]; then
-      echo "🔥 Compiling JS bundle to Hermes bytecode: $HERMESC_PATH"
-      "$HERMESC_PATH" -emit-binary -out "$bundle_file.hbc" "$bundle_file"
-      mv "$bundle_file.hbc" "$bundle_file"
-      echo "✅ Hermes bytecode compilation complete."
+    # 1. Determine default based on RN Version (Hermes is default on >= 0.70)
+    RN_VERSION=$(node -p "require('$SOURCE_DIR/package.json').dependencies['react-native']" 2>/dev/null | tr -d '^~' | cut -d'.' -f2 || echo "0")
+    if [[ "$RN_VERSION" -ge 70 ]]; then
+      PROJECT_USES_HERMES="true"
     else
-      echo "⚠️  hermesc not found — skipping Hermes bytecode compilation. (Native app may expect ABC/HBC bytecode)"
+      PROJECT_USES_HERMES="false"
+    fi
+
+    # 2. Check for explicit platform overrides
+    if [[ "$platform" == "android" ]]; thens
+      if grep -E -qi "hermesEnabled=true|enableHermes:? *true|jsEngine=hermes" "$SOURCE_DIR/android/gradle.properties" "$SOURCE_DIR/android/app/build.gradle" 2>/dev/null; then
+        PROJECT_USES_HERMES="true"
+      elif grep -E -qi "hermesEnabled=false|enableHermes:? *false|jsEngine=jsc" "$SOURCE_DIR/android/gradle.properties" "$SOURCE_DIR/android/app/build.gradle" 2>/dev/null; then
+        PROJECT_USES_HERMES="false"
+      fi
+    elif [[ "$platform" == "ios" ]]; then
+      if grep -E -qi ":hermes_enabled *=> *false" "$SOURCE_DIR/ios/Podfile" 2>/dev/null; then
+        PROJECT_USES_HERMES="false"
+      elif grep -E -q "podfile_properties\['expo.jsEngine'\]" "$SOURCE_DIR/ios/Podfile" 2>/dev/null; then
+        # Handle dynamic Expo property resolution
+        if grep -qi '"expo.jsEngine" *: *"jsc"' "$SOURCE_DIR/ios/Podfile.properties.json" 2>/dev/null || \
+           grep -qi '"jsEngine" *: *"jsc"' "$SOURCE_DIR/app.json" 2>/dev/null; then
+          PROJECT_USES_HERMES="false"
+        else
+          PROJECT_USES_HERMES="true" # Expo modern default is Hermes
+        fi
+      elif grep -E -qi ":hermes_enabled *=> *true" "$SOURCE_DIR/ios/Podfile" 2>/dev/null; then
+        PROJECT_USES_HERMES="true"
+      fi
+    fi
+
+    if [[ "$PROJECT_USES_HERMES" == "false" ]]; then
+      echo "ℹ️  React Native project has Hermes DISABLED. Keeping standard minified JS bundle."
+    else
+      # Locate hermesc inside the RN installation based on OS
+      OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
+      HERMESC_PATH=""
+      
+      if [[ "$OS_NAME" == "darwin" ]]; then
+        HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/react-native/sdks/hermesc/osx-bin/hermesc" -type f | head -n 1)
+        if [[ -z "$HERMESC_PATH" ]]; then
+          HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/@react-native/hermes-cli/osx-bin/hermesc" -type f | head -n 1)
+        fi
+      elif [[ "$OS_NAME" == "linux" ]]; then
+        HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/react-native/sdks/hermesc/linux64-bin/hermesc" -type f | head -n 1)
+        if [[ -z "$HERMESC_PATH" ]]; then
+          HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/@react-native/hermes-cli/linux64-bin/hermesc" -type f | head -n 1)
+        fi
+      fi
+
+      # Sometimes it's globally available or in another standard path
+      if [[ -z "$HERMESC_PATH" && -f "$SOURCE_DIR/node_modules/react-native/sdks/hermesc/build/bin/hermesc" ]]; then
+        HERMESC_PATH="$SOURCE_DIR/node_modules/react-native/sdks/hermesc/build/bin/hermesc"
+      fi
+
+      # 3. Extract custom Hermes Flags if defined in build configuration
+      HERMES_FLAGS="-O -output-source-map"
+      if [[ "$platform" == "android" ]]; then
+        # Look for uncommented hermesFlags = ["-O", "-output-source-map"]
+        EXTRACTED_FLAGS=$(grep -i 'hermesFlags *=' "$SOURCE_DIR/android/app/build.gradle" 2>/dev/null | grep -v '^ *//' | sed 's/.*\[\(.*\)\].*/\1/' | tr -d '"' | tr -d "'" | tr ',' ' ')
+        if [[ -n "$EXTRACTED_FLAGS" ]]; then
+          HERMES_FLAGS="$EXTRACTED_FLAGS"
+          echo "ℹ️  Found Custom Android Hermes Flags: $HERMES_FLAGS"
+        fi
+      elif [[ "$platform" == "ios" ]]; then
+        # Look for uncommented :hermes_flags => "-O -output-source-map"
+        EXTRACTED_FLAGS=$(grep -i ':hermes_flags *=>' "$SOURCE_DIR/ios/Podfile" 2>/dev/null | grep -v '^ *#' | sed -E "s/.*:hermes_flags *=> *['\"]([^'\"]+)['\"].*/\1/")
+        if [[ -n "$EXTRACTED_FLAGS" ]]; then
+          HERMES_FLAGS="$EXTRACTED_FLAGS"
+          echo "ℹ️  Found Custom iOS Hermes Flags: $HERMES_FLAGS"
+        fi
+      fi
+
+      if [[ -n "$HERMESC_PATH" && -x "$HERMESC_PATH" ]]; then
+        echo "🔥 Compiling JS bundle to Hermes bytecode: $HERMESC_PATH"
+        # Notice parameter expansion doesn't quote HERMES_FLAGS so arguments split correctly
+        "$HERMESC_PATH" -emit-binary $HERMES_FLAGS -out "$bundle_file.hbc" "$bundle_file"
+        mv "$bundle_file.hbc" "$bundle_file"
+        
+        # Compose Hermes sourcemap with Metro packager sourcemap for accurate Sentry crash reporting
+        COMPOSE_SCRIPT="$SOURCE_DIR/node_modules/react-native/scripts/compose-source-maps.js"
+        if [[ -f "$COMPOSE_SCRIPT" && -f "${bundle_file}.hbc.map" ]]; then
+          echo "🧩 Composing Hermes sourcemap with packager sourcemap..."
+          node "$COMPOSE_SCRIPT" "${bundle_file}.map" "${bundle_file}.hbc.map" -o "${bundle_file}.map.composed"
+          mv "${bundle_file}.map.composed" "${bundle_file}.map"
+        elif [[ -f "${bundle_file}.hbc.map" ]]; then
+          echo "⚠️  compose-source-maps.js not found. Using raw Hermes sourcemap."
+          mv "${bundle_file}.hbc.map" "${bundle_file}.map"
+        fi
+        
+        echo "✅ Hermes bytecode compilation complete."
+      else
+        echo "⚠️  hermesc not found — skipping Hermes bytecode compilation. (Native app may expect ABC/HBC bytecode)"
+      fi
     fi
   )
 }
