@@ -64,6 +64,11 @@ jobs:
         working-directory: input
         run: yarn install
 
+      - name: Mask Sensitive Values
+        run: |
+          echo "::add-mask::${{ fromJSON(github.event.inputs.params).keystorePassword }}"
+          echo "::add-mask::${{ fromJSON(github.event.inputs.params).keyPassword }}"
+
       - name: Repack and Sign APK
         env:
           CI: "true"
@@ -73,7 +78,7 @@ jobs:
           RELEASE_DOWNLOAD_DIR: ${{ github.workspace }}/release_download
           RELEASE_REPO: ${{ fromJSON(github.event.inputs.params).releaseRepo }}
           RELEASE_TAG: ${{ fromJSON(github.event.inputs.params).releaseTag }}
-          APK_FILENAME: ${{ fromJSON(github.event.inputs.params).apkFilename || 'app-release.apk' }}
+          APK_FILENAME: ${{ fromJSON(github.event.inputs.params).apkFilename || '*.apk' }}
           KEYSTORE_PATH: ${{ fromJSON(github.event.inputs.params).keystorePath }}
           KEYSTORE_PASSWORD: ${{ fromJSON(github.event.inputs.params).keystorePassword }}
           KEY_ALIAS: ${{ fromJSON(github.event.inputs.params).keyAlias }}
@@ -155,6 +160,10 @@ jobs:
       - name: Yarn Install
         working-directory: input
         run: yarn install
+
+      - name: Mask Sensitive Values
+        run: |
+          echo "::add-mask::${{ fromJSON(github.event.inputs.params).p12pass }}"
 
       - name: Repack and Sign IPA
         env:
