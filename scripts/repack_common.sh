@@ -120,7 +120,7 @@ common_bundle() {
     fi
 
     # 2. Check for explicit platform overrides
-    if [[ "$platform" == "android" ]]; thens
+    if [[ "$platform" == "android" ]]; then
       if grep -E -qi "hermesEnabled=true|enableHermes:? *true|jsEngine=hermes" "$SOURCE_DIR/android/gradle.properties" "$SOURCE_DIR/android/app/build.gradle" 2>/dev/null; then
         PROJECT_USES_HERMES="true"
       elif grep -E -qi "hermesEnabled=false|enableHermes:? *false|jsEngine=jsc" "$SOURCE_DIR/android/gradle.properties" "$SOURCE_DIR/android/app/build.gradle" 2>/dev/null; then
