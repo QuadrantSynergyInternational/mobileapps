@@ -265,6 +265,74 @@ echo "🔑 Signing with identity: $IDENTITY"
 echo "📁 Repacking signed IPA..."
 (cd "$RELEASE_DOWNLOAD_DIR/unpacked_ipa" && zip -qry ../resigned-output.ipa Payload)
 
+# ── Generate manifest.plist ───────────────────────────────────────────────────
+echo ""
+echo "📋 Generating manifest.plist..."
+APP_INFO_PLIST="$RELEASE_DOWNLOAD_DIR/unpacked_ipa/Payload/$APP_NAME/Info.plist"
+BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_INFO_PLIST" 2>/dev/null || echo "")
+DISPLAY_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$APP_INFO_PLIST" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Print :CFBundleName" "$APP_INFO_PLIST" 2>/dev/null \
+  || echo "$APP_NAME")
+
+if [[ -n "$BUNDLE_ID" ]]; then
+  cat > "$RELEASE_DOWNLOAD_DIR/manifest.plist" <<'PLIST_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>assets</key>
+			<array>
+				<dict>
+					<key>kind</key>
+					<string>software-package</string>
+					<key>url</key>
+					<string>{IPA_URL}</string>
+				</dict>
+				<dict>
+					<key>kind</key>
+					<string>display-image</string>
+					<key>url</key>
+					<string>{DISPLAY_IMAGE}</string>
+				</dict>
+				<dict>
+					<key>kind</key>
+					<string>full-size-image</string>
+					<key>url</key>
+					<string>{FULLSIZE_IMAGE}</string>
+				</dict>
+			</array>
+			<key>metadata</key>
+			<dict>
+				<key>bundle-identifier</key>
+				<string>BUNDLE_ID_PLACEHOLDER</string>
+				<key>bundle-version</key>
+				<string>APP_VERSION_PLACEHOLDER</string>
+				<key>kind</key>
+				<string>software</string>
+				<key>platform-identifier</key>
+				<string>com.apple.platform.iphoneos</string>
+				<key>title</key>
+				<string>DISPLAY_NAME_PLACEHOLDER</string>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>
+PLIST_EOF
+  # Substitute only bundle-identifier, bundle-version, and title
+  sed -i '' \
+    -e "s|BUNDLE_ID_PLACEHOLDER|$BUNDLE_ID|g" \
+    -e "s|APP_VERSION_PLACEHOLDER|$APP_VERSION|g" \
+    -e "s|DISPLAY_NAME_PLACEHOLDER|$DISPLAY_NAME|g" \
+    "$RELEASE_DOWNLOAD_DIR/manifest.plist"
+  echo "✅ manifest.plist generated (bundle: $BUNDLE_ID, version: $APP_VERSION)."
+else
+  echo "⚠️  Could not read bundle ID from Info.plist — skipping manifest.plist."
+fi
+
 # ── Upload sourcemaps to Sentry (optional) ──────────────────────────────────
 if [[ -n "${SENTRY_AUTH_TOKEN:-}" && -n "${SENTRY_ORG:-}" && -n "${SENTRY_PROJECT:-}" ]]; then
   echo ""
