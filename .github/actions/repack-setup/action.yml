@@ -1,0 +1,79 @@
+name: Repack Common Setup
+description: >
+  Shared setup steps for Android and iOS repack jobs:
+  clone source repo, read app version, send log, install Node/Watchman/yarn.
+
+inputs:
+  params:
+    description: Build params JSON string
+    required: true
+  platform:
+    description: Actual platform for this job — android or ios (not 'both')
+    required: true
+  run_id:
+    description: github.run_id passed from the caller
+    required: true
+  appcenter_secret:
+    description: X-AppCenter-Secret header value
+    required: true
+  appcenter_domain:
+    description: AppCenter host (e.g. appcenterq.vercel.app)
+    required: true
+  git_username:
+    description: Git username for self-hosted clone
+    required: true
+  git_password:
+    description: Git password / token for self-hosted clone
+    required: true
+
+outputs:
+  current-version:
+    description: App version read from package.json
+    value: ${{ steps.package-version.outputs.current-version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Clone Source Repo
+      shell: bash
+      run: |
+        git clone --depth=1 --single-branch \
+          --branch=${{ fromJSON(inputs.params).branch }} \
+          https://${{ inputs.git_username }}:${{ inputs.git_password }}@${{ fromJSON(inputs.params).repo }} \
+          input
+
+    - name: Get App Version
+      id: package-version
+      shell: bash
+      working-directory: input
+      run: |
+        current_version=$(node -e "console.log(require('./package.json').version)")
+        echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
+
+    - name: Logging
+      shell: bash
+      run: |
+        curl -s -L -G -X POST \
+        -H "X-AppCenter-Secret: ${{ inputs.appcenter_secret }}" \
+        --data-urlencode 'wf_id=${{ inputs.run_id }}' \
+        --data-urlencode 'params=${{ inputs.params }}' \
+        --data-urlencode 'uniqueId=${{ fromJSON(inputs.params).uniqueId }}' \
+        --data-urlencode 'version=${{ steps.package-version.outputs.current-version }}' \
+        --data-urlencode 'platform=${{ inputs.platform }}' \
+        https://${{ inputs.appcenter_domain }}/projects/${{ fromJSON(inputs.params).projectid }}/trigger-log
+
+    - name: Setup Node.js
+      if: ${{ fromJSON(inputs.params).node != '' }}
+      uses: actions/setup-node@v4.0.4
+      with:
+        node-version: ${{ fromJSON(inputs.params).node }}
+
+    - name: Install Watchman
+      uses: ConorMacBride/install-package@v1
+      with:
+        brew: watchman
+
+    - name: Yarn Install
+      shell: bash
+      working-directory: input
+      run: yarn install

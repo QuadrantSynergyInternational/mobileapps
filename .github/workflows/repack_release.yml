@@ -5,120 +5,37 @@ on:
     inputs:
       params:
         type: string
-        description: Build Params (JSON)
+        description: Build Params (JSON) — include "platform" key (android | ios | both)
         required: true
-      platform:
-        type: choice
-        description: Platform to repack
-        required: true
-        options:
-          - android
-          - ios
-          - both
 
 jobs:
-  # ── Encrypt params with a one-time AES key ──────────────────────────────────
-  # The raw params JSON (which may contain passwords) is encrypted once here.
-  # Downstream jobs receive only the ciphertext + key via job outputs — never
-  # the plaintext. Both values are ephemeral and scoped to this run.
-  prepare:
-    name: Encrypt Params
-    runs-on: ubuntu-latest
-    outputs:
-      encrypted: ${{ steps.encrypt.outputs.encrypted }}
-      key: ${{ steps.encrypt.outputs.key }}
-      platform: ${{ steps.encrypt.outputs.platform }}
-    steps:
-      - name: Encrypt params
-        id: encrypt
-        env:
-          RAW_PARAMS: ${{ github.event.inputs.params }}
-          PLATFORM: ${{ github.event.inputs.platform }}
-        run: |
-          KEY=$(openssl rand -hex 32)
-          ENCRYPTED=$(echo -n "$RAW_PARAMS" | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -pass "pass:$KEY" | base64 -w 0)
-          echo "encrypted=$ENCRYPTED" >> "$GITHUB_OUTPUT"
-          echo "key=$KEY" >> "$GITHUB_OUTPUT"
-          echo "platform=$PLATFORM" >> "$GITHUB_OUTPUT"
-
   # ── Android repack ──────────────────────────────────────────────────────────
   repack-android:
     name: Repack APK
     runs-on: macos-latest
-    needs: prepare
-    if: ${{ needs.prepare.outputs.platform == 'android' || needs.prepare.outputs.platform == 'both' }}
+    if: ${{ fromJSON(github.event.inputs.params).platform == 'android' || fromJSON(github.event.inputs.params).platform == 'both' }}
     steps:
       - name: Checkout Workflow Scripts
         uses: actions/checkout@v4
 
-      - name: Decrypt non-sensitive params
-        id: params
-        env:
-          ENCRYPTED: ${{ needs.prepare.outputs.encrypted }}
-          KEY: ${{ needs.prepare.outputs.key }}
-        run: |
-          PARAMS=$(echo "$ENCRYPTED" | base64 -d | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -d -pass "pass:$KEY")
-          get() { echo "$PARAMS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$1',''))" ; }
-          echo "branch=$(get branch)"               >> "$GITHUB_OUTPUT"
-          echo "repo=$(get repo)"                   >> "$GITHUB_OUTPUT"
-          echo "node=$(get node)"                   >> "$GITHUB_OUTPUT"
-          echo "java=$(get java)"                   >> "$GITHUB_OUTPUT"
-          echo "releaseRepo=$(get releaseRepo)"     >> "$GITHUB_OUTPUT"
-          echo "releaseTag=$(get releaseTag)"       >> "$GITHUB_OUTPUT"
-          echo "apkFilename=$(get apkFilename)"     >> "$GITHUB_OUTPUT"
-          echo "keystorePath=$(get keystorePath)"   >> "$GITHUB_OUTPUT"
-          echo "releaseTo=$(get releaseTo)"         >> "$GITHUB_OUTPUT"
-          echo "configuration=$(get configuration)" >> "$GITHUB_OUTPUT"
-          echo "releasenote=$(get releasenote)"     >> "$GITHUB_OUTPUT"
-          echo "projectid=$(get projectid)"         >> "$GITHUB_OUTPUT"
-          echo "uniqueId=$(get uniqueId)"           >> "$GITHUB_OUTPUT"
-          echo "sentryProject=$(get sentryProject)" >> "$GITHUB_OUTPUT"
-
-      - name: Clone Source Repo
-        run: |
-          git clone --depth=1 --single-branch \
-            --branch=${{ steps.params.outputs.branch }} \
-            https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ steps.params.outputs.repo }} \
-            input
-
-      - name: Get App Version
-        id: package-version
-        working-directory: input
-        run: |
-          current_version=$(node -e "console.log(require('./package.json').version)")
-          echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
-
-      - name: Logging
-        run: |
-          curl -s -L -G -X POST \
-          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-          --data-urlencode 'wf_id=${{ github.run_id }}' \
-          --data-urlencode 'uniqueId=${{ steps.params.outputs.uniqueId }}' \
-          --data-urlencode 'version=${{ steps.package-version.outputs.current-version }}' \
-          --data-urlencode 'platform=android' \
-          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ steps.params.outputs.projectid }}/trigger-log
-
       - name: Setup Java JDK
         uses: actions/setup-java@v4.4.0
-        if: ${{ steps.params.outputs.java != '' }}
+        if: ${{ fromJSON(github.event.inputs.params).java != '' }}
         with:
-          java-version: ${{ steps.params.outputs.java }}
+          java-version: ${{ fromJSON(github.event.inputs.params).java }}
           distribution: corretto
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4.0.4
-        if: ${{ steps.params.outputs.node != '' }}
+      - name: Common Setup
+        id: setup
+        uses: ./.github/actions/repack-setup
         with:
-          node-version: ${{ steps.params.outputs.node }}
-
-      - name: Initialize Watchman
-        uses: ConorMacBride/install-package@v1
-        with:
-          brew: watchman
-
-      - name: Yarn Install
-        working-directory: input
-        run: yarn install
+          params: ${{ github.event.inputs.params }}
+          platform: android
+          run_id: ${{ github.run_id }}
+          appcenter_secret: ${{ secrets.APPCENTER_SECRET }}
+          appcenter_domain: ${{ secrets.APPCENTER_DOMAIN }}
+          git_username: ${{ secrets.GIT_USERNAME }}
+          git_password: ${{ secrets.GIT_PASSWORD }}
 
       - name: Repack and Sign APK
         env:
@@ -127,118 +44,63 @@ jobs:
           SOURCE_DIR: ${{ github.workspace }}/input
           BUNDLE_OUTPUT_DIR: ${{ github.workspace }}/bundle_output
           RELEASE_DOWNLOAD_DIR: ${{ github.workspace }}/release_download
-          RELEASE_REPO: ${{ steps.params.outputs.releaseRepo }}
-          RELEASE_TAG: ${{ steps.params.outputs.releaseTag }}
-          APK_FILENAME: ${{ steps.params.outputs.apkFilename || '*.apk' }}
-          KEYSTORE_PATH: ${{ steps.params.outputs.keystorePath }}
+          RELEASE_REPO: ${{ fromJSON(github.event.inputs.params).releaseRepo }}
+          RELEASE_TAG: ${{ fromJSON(github.event.inputs.params).releaseTag }}
+          APK_FILENAME: ${{ fromJSON(github.event.inputs.params).apkFilename || '*.apk' }}
+          KEYSTORE_PATH: ${{ fromJSON(github.event.inputs.params).keystorePath }}
+          KEYSTORE_PASSWORD: ${{ fromJSON(github.event.inputs.params).keystorePassword }}
+          KEY_ALIAS: ${{ fromJSON(github.event.inputs.params).keyAlias }}
+          KEY_PASSWORD: ${{ fromJSON(github.event.inputs.params).keyPassword }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
-          APP_VERSION: ${{ steps.package-version.outputs.current-version }}
+          APP_VERSION: ${{ steps.setup.outputs.current-version }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ steps.params.outputs.sentryProject }}
-        run: |
-          # Decrypt sensitive keystore credentials inline — no env entry, no output, no log
-          _D=$(echo '${{ needs.prepare.outputs.encrypted }}' | base64 -d | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -d -pass 'pass:${{ needs.prepare.outputs.key }}' 2>/dev/null)
-          _g() { echo "$_D" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$1',''))" ; }
-          export KEYSTORE_PASSWORD=$(_g keystorePassword)
-          export KEY_ALIAS=$(_g keyAlias)
-          export KEY_PASSWORD=$(_g keyPassword)
-          unset _D
-          bash scripts/repack_android.sh
+          SENTRY_PROJECT: ${{ fromJSON(github.event.inputs.params).sentryProject || '' }}
+        run: bash scripts/repack_android.sh
 
       - name: Upload to Release
         id: release
         uses: muhamad-rizki/action-gh-release@v3.0.1
         with:
-          repository: ${{ steps.params.outputs.releaseTo }}
+          repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
           files: release_download/resigned-output.apk
-          tag_name: "v${{ steps.package-version.outputs.current-version }}-${{ steps.params.outputs.configuration }}-${{ steps.params.outputs.branch }}"
-          body: "Repacked APK v${{ steps.package-version.outputs.current-version }} (${{ steps.params.outputs.configuration }})"
-          body_path: ./input/${{ steps.params.outputs.releasenote != '' && steps.params.outputs.releasenote || 'releasenote.md' }}
+          tag_name: "v${{ steps.setup.outputs.current-version }}-${{ fromJSON(github.event.inputs.params).configuration }}-${{ fromJSON(github.event.inputs.params).branch }}"
+          body: "Repacked APK v${{ steps.setup.outputs.current-version }} (${{ fromJSON(github.event.inputs.params).configuration }})"
+          body_path: ./input/${{ fromJSON(github.event.inputs.params).releasenote != '' && fromJSON(github.event.inputs.params).releasenote || 'releasenote.md' }}
 
       - name: Update DB
         run: |
           curl -s -L -X POST \
           -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ steps.params.outputs.projectid }}/release?id=${{ steps.release.outputs.id }}
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/release?id=${{ steps.release.outputs.id }}
 
   # ── iOS repack ──────────────────────────────────────────────────────────────
   repack-ios:
     name: Repack IPA
     runs-on: macos-14
-    needs: prepare
-    if: ${{ needs.prepare.outputs.platform == 'ios' || needs.prepare.outputs.platform == 'both' }}
+    if: ${{ fromJSON(github.event.inputs.params).platform == 'ios' || fromJSON(github.event.inputs.params).platform == 'both' }}
     steps:
       - name: Checkout Workflow Scripts
         uses: actions/checkout@v4
 
-      - name: Decrypt non-sensitive params
-        id: params
-        env:
-          ENCRYPTED: ${{ needs.prepare.outputs.encrypted }}
-          KEY: ${{ needs.prepare.outputs.key }}
-        run: |
-          PARAMS=$(echo "$ENCRYPTED" | base64 -d | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -d -pass "pass:$KEY")
-          get() { echo "$PARAMS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$1',''))" ; }
-          echo "branch=$(get branch)"               >> "$GITHUB_OUTPUT"
-          echo "repo=$(get repo)"                   >> "$GITHUB_OUTPUT"
-          echo "node=$(get node)"                   >> "$GITHUB_OUTPUT"
-          echo "releaseRepo=$(get releaseRepo)"     >> "$GITHUB_OUTPUT"
-          echo "releaseTag=$(get releaseTag)"       >> "$GITHUB_OUTPUT"
-          echo "ipaFilename=$(get ipaFilename)"     >> "$GITHUB_OUTPUT"
-          echo "projectid=$(get projectid)"         >> "$GITHUB_OUTPUT"
-          echo "provisionfile=$(get provisionfile)" >> "$GITHUB_OUTPUT"
-          echo "releaseTo=$(get releaseTo)"         >> "$GITHUB_OUTPUT"
-          echo "configuration=$(get configuration)" >> "$GITHUB_OUTPUT"
-          echo "releasenote=$(get releasenote)"     >> "$GITHUB_OUTPUT"
-          echo "uniqueId=$(get uniqueId)"           >> "$GITHUB_OUTPUT"
-          echo "sentryProject=$(get sentryProject)" >> "$GITHUB_OUTPUT"
-
-      - name: Clone Source Repo
-        run: |
-          git clone --depth=1 --single-branch \
-            --branch=${{ steps.params.outputs.branch }} \
-            https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ steps.params.outputs.repo }} \
-            input
+      - name: Common Setup
+        id: setup
+        uses: ./.github/actions/repack-setup
+        with:
+          params: ${{ github.event.inputs.params }}
+          platform: ios
+          run_id: ${{ github.run_id }}
+          appcenter_secret: ${{ secrets.APPCENTER_SECRET }}
+          appcenter_domain: ${{ secrets.APPCENTER_DOMAIN }}
+          git_username: ${{ secrets.GIT_USERNAME }}
+          git_password: ${{ secrets.GIT_PASSWORD }}
 
       - name: Clone Provision Repo
         run: |
           git clone --depth=1 --single-branch --branch=main \
             https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git \
             provision
-
-      - name: Get App Version
-        id: package-version
-        working-directory: input
-        run: |
-          current_version=$(node -e "console.log(require('./package.json').version)")
-          echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
-
-      - name: Logging
-        run: |
-          curl -s -L -G -X POST \
-          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-          --data-urlencode 'wf_id=${{ github.run_id }}' \
-          --data-urlencode 'uniqueId=${{ steps.params.outputs.uniqueId }}' \
-          --data-urlencode 'version=${{ steps.package-version.outputs.current-version }}' \
-          --data-urlencode 'platform=ios' \
-          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ steps.params.outputs.projectid }}/trigger-log
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4.0.4
-        if: ${{ steps.params.outputs.node != '' }}
-        with:
-          node-version: ${{ steps.params.outputs.node }}
-
-      - name: Install & Cache Watchman
-        uses: ConorMacBride/install-package@v1
-        with:
-          brew: watchman
-
-      - name: Yarn Install
-        working-directory: input
-        run: yarn install
 
       - name: Repack and Sign IPA
         env:
@@ -248,38 +110,34 @@ jobs:
           PROVISION_DIR: ${{ github.workspace }}/provision
           BUNDLE_OUTPUT_DIR: ${{ github.workspace }}/bundle_output
           RELEASE_DOWNLOAD_DIR: ${{ github.workspace }}/release_download
-          RELEASE_REPO: ${{ steps.params.outputs.releaseRepo }}
-          RELEASE_TAG: ${{ steps.params.outputs.releaseTag }}
-          IPA_FILENAME: ${{ steps.params.outputs.ipaFilename || '*.ipa' }}
-          PROJECT_ID: ${{ steps.params.outputs.projectid }}
-          PROVISION_FILE: ${{ steps.params.outputs.provisionfile != '' && steps.params.outputs.provisionfile || steps.params.outputs.branch }}
+          RELEASE_REPO: ${{ fromJSON(github.event.inputs.params).releaseRepo }}
+          RELEASE_TAG: ${{ fromJSON(github.event.inputs.params).releaseTag }}
+          IPA_FILENAME: ${{ fromJSON(github.event.inputs.params).ipaFilename || '*.ipa' }}
+          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
+          PROVISION_FILE: ${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}
+          P12_PASSWORD: ${{ fromJSON(github.event.inputs.params).p12pass || '' }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
-          APP_VERSION: ${{ steps.package-version.outputs.current-version }}
+          APP_VERSION: ${{ steps.setup.outputs.current-version }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ steps.params.outputs.sentryProject }}
-        run: |
-          # Decrypt P12 password inline — no env entry, no output, no log
-          _D=$(echo '${{ needs.prepare.outputs.encrypted }}' | base64 -d | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -d -pass 'pass:${{ needs.prepare.outputs.key }}' 2>/dev/null)
-          export P12_PASSWORD=$(echo "$_D" | python3 -c "import sys,json; print(json.load(sys.stdin).get('p12pass',''))")
-          unset _D
-          bash scripts/repack_ios.sh
+          SENTRY_PROJECT: ${{ fromJSON(github.event.inputs.params).sentryProject || '' }}
+        run: bash scripts/repack_ios.sh
 
       - name: Upload to Release
         id: release
         uses: muhamad-rizki/action-gh-release@v3.0.1
         with:
-          repository: ${{ steps.params.outputs.releaseTo }}
+          repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
           files: |
             release_download/resigned-output.ipa
             release_download/manifest.plist
-          tag_name: "v${{ steps.package-version.outputs.current-version }}-${{ steps.params.outputs.configuration }}-${{ steps.params.outputs.branch }}"
-          body: "Repacked IPA v${{ steps.package-version.outputs.current-version }} (${{ steps.params.outputs.configuration }})"
-          body_path: ./input/${{ steps.params.outputs.releasenote != '' && steps.params.outputs.releasenote || 'releasenote.md' }}
+          tag_name: "v${{ steps.setup.outputs.current-version }}-${{ fromJSON(github.event.inputs.params).configuration }}-${{ fromJSON(github.event.inputs.params).branch }}"
+          body: "Repacked IPA v${{ steps.setup.outputs.current-version }} (${{ fromJSON(github.event.inputs.params).configuration }})"
+          body_path: ./input/${{ fromJSON(github.event.inputs.params).releasenote != '' && fromJSON(github.event.inputs.params).releasenote || 'releasenote.md' }}
 
       - name: Update DB
         run: |
           curl -s -L -X POST \
           -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ steps.params.outputs.projectid }}/release?id=${{ steps.release.outputs.id }}
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/release?id=${{ steps.release.outputs.id }}

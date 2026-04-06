@@ -20,10 +20,10 @@
 #   GH_TOKEN              GitHub token (used by gh CLI)
 #
 # Optional env vars:
-#   REPO                  Self-hosted git host+path (e.g. git.example.com/org/repo) — required in local mode
-#   REPO_BRANCH           Branch to clone                — required in local mode
-#   GIT_USERNAME          Git username for self-hosted    — required in local mode
-#   GIT_PASSWORD          Git password/token              — required in local mode
+#   REPO                  Self-hosted git host+path — required in local mode
+#   REPO_BRANCH           Branch to clone            — required in local mode
+#   GIT_USERNAME          Git username               — required in local mode
+#   GIT_PASSWORD          Git password/token         — required in local mode
 #   APK_FILENAME          APK glob/filename to download (default: *.apk)
 #   WORK_DIR              Root working dir  (default: /tmp/repack_android_$$)
 #   SOURCE_DIR            Path to cloned source (default: $WORK_DIR/input)
@@ -38,41 +38,26 @@
 
 set -euo pipefail
 
-# ── Load .env (local mode only) ─────────────────────────────────────────────
-if [[ "${CI:-false}" != "true" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  for env_file in "$SCRIPT_DIR/.env" "$SCRIPT_DIR/../.env" ".env"; do
-    if [[ -f "$env_file" ]]; then
-      echo "📄 Loading env from $env_file"
-      set -o allexport
-      # shellcheck source=/dev/null
-      source "$env_file"
-      set +o allexport
-      break
-    fi
-  done
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=repack_common.sh
+source "$SCRIPT_DIR/repack_common.sh"
 
-# ── Defaults ────────────────────────────────────────────────────────────────
+# ── Load .env + defaults ─────────────────────────────────────────────────────
+common_load_env
+
 APK_FILENAME="${APK_FILENAME:-*.apk}"
+CI="${CI:-false}"
 WORK_DIR="${WORK_DIR:-/tmp/repack_android_$$}"
 SOURCE_DIR="${SOURCE_DIR:-$WORK_DIR/input}"
 BUNDLE_OUTPUT_DIR="${BUNDLE_OUTPUT_DIR:-$WORK_DIR/bundle_output}"
 RELEASE_DOWNLOAD_DIR="${RELEASE_DOWNLOAD_DIR:-$WORK_DIR/release_download}"
-CI="${CI:-false}"
 
 # ── Validate required vars ───────────────────────────────────────────────────
 REQUIRED_VARS=(RELEASE_REPO RELEASE_TAG KEYSTORE_PATH KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD GH_TOKEN)
 if [[ "$CI" != "true" ]]; then
   REQUIRED_VARS+=(REPO REPO_BRANCH GIT_USERNAME GIT_PASSWORD)
 fi
-
-for var in "${REQUIRED_VARS[@]}"; do
-  if [[ -z "${!var:-}" ]]; then
-    echo "❌ Required env var '$var' is not set."
-    exit 1
-  fi
-done
+common_validate_vars
 
 mkdir -p "$WORK_DIR" "$BUNDLE_OUTPUT_DIR" "$RELEASE_DOWNLOAD_DIR"
 echo "🗂️  Work dir:     $WORK_DIR"
@@ -81,55 +66,11 @@ echo "📦 Bundle dir:   $BUNDLE_OUTPUT_DIR"
 echo "⬇️  Download dir: $RELEASE_DOWNLOAD_DIR"
 
 # ── Clone + install (local mode only) ───────────────────────────────────────
-if [[ "$CI" != "true" ]]; then
-  echo ""
-  echo "📥 Cloning source repo ($REPO_BRANCH)..."
-  git clone --depth=1 --single-branch \
-    --branch="$REPO_BRANCH" \
-    "https://${GIT_USERNAME}:${GIT_PASSWORD}@${REPO}" \
-    "$SOURCE_DIR"
+common_clone_source
 
-  echo ""
-  echo "📦 Installing JS dependencies..."
-  (cd "$SOURCE_DIR" && yarn install)
-fi
-
-# ── Load sentry.properties (optional) ───────────────────────────────────────
-# Reads defaults.properties or sentry.properties from the source root.
-# Env vars take precedence over values in the file.
-SENTRY_PROPS_FILE="$SOURCE_DIR/sentry.properties"
-if [[ -f "$SENTRY_PROPS_FILE" ]]; then
-  echo ""
-  echo "📋 Loading Sentry config from $SENTRY_PROPS_FILE..."
-  while IFS='=' read -r key value; do
-    # Skip comments and blank lines
-    [[ "$key" =~ ^[[:space:]]*# ]] && continue
-    [[ -z "${key// }" ]] && continue
-    key="${key// /}"
-    value="${value// /}"
-    case "$key" in
-      auth.token)   SENTRY_AUTH_TOKEN="${SENTRY_AUTH_TOKEN:-$value}" ;;
-      defaults.org) SENTRY_ORG="${SENTRY_ORG:-$value}" ;;
-      defaults.project) SENTRY_PROJECT="${SENTRY_PROJECT:-$value}" ;;
-    esac
-  done < "$SENTRY_PROPS_FILE"
-fi
-
-# ── Bundle React Native ──────────────────────────────────────────────────────
-echo ""
-echo "🏗️  Bundling React Native (android)..."
-APP_VERSION="${APP_VERSION:-$(node -e "console.log(require('$SOURCE_DIR/package.json').version)")}"
-echo "📌 App version: $APP_VERSION"
-(
-  cd "$SOURCE_DIR"
-  npx react-native bundle \
-    --platform android \
-    --dev false \
-    --entry-file index.js \
-    --bundle-output "$BUNDLE_OUTPUT_DIR/index.android.bundle" \
-    --sourcemap-output "$BUNDLE_OUTPUT_DIR/index.android.bundle.map" \
-    --assets-dest "$BUNDLE_OUTPUT_DIR"
-)
+# ── Load sentry.properties + bundle ─────────────────────────────────────────
+common_load_sentry
+common_bundle android
 
 # ── Download release APK ─────────────────────────────────────────────────────
 echo ""
@@ -157,26 +98,100 @@ if [[ -z "$DOWNLOADED_APK" ]]; then
 fi
 echo "📦 Found APK: $(basename "$DOWNLOADED_APK")"
 
-# ── Unpack + replace bundle ──────────────────────────────────────────────────
-UNPACKED_DIR="$RELEASE_DOWNLOAD_DIR/unpacked_apk"
+# ── Repack APK (preserve per-entry compression) ──────────────────────────────
+# Using Python instead of unzip+zip because zip(1) recompresses every entry
+# with DEFLATE by default, including .so libraries and resources.arsc which
+# the Android runtime requires to be STORED (uncompressed). This causes a
+# halved APK size and prevents the app from loading native libraries.
 echo ""
-echo "📦 Unpacking APK..."
-unzip -qo "$DOWNLOADED_APK" -d "$UNPACKED_DIR"
+echo "💻 Repacking APK (preserving original compression per entry)..."
+mkdir -p "$(dirname "$DOWNLOADED_APK")"
 
-echo "🔄 Replacing index.android.bundle..."
-mkdir -p "$UNPACKED_DIR/assets"
-cp "$BUNDLE_OUTPUT_DIR/index.android.bundle" "$UNPACKED_DIR/assets/index.android.bundle"
+python3 - \
+  "$DOWNLOADED_APK" \
+  "$RELEASE_DOWNLOAD_DIR/repacked-unsigned.apk" \
+  "$BUNDLE_OUTPUT_DIR/index.android.bundle" \
+  "$BUNDLE_OUTPUT_DIR" \
+<<'PYEOF'
+import sys, os, zipfile
 
-if [ -d "$BUNDLE_OUTPUT_DIR/assets" ]; then
-  echo "🖼️  Syncing assets..."
-  cp -R "$BUNDLE_OUTPUT_DIR/assets/." "$UNPACKED_DIR/assets/" || true
+src_apk, dst_apk, bundle_path, rn_out = sys.argv[1:5]
+
+# Build map of RN bundle outputs that should replace/add entries in the APK:
+#   assets/index.android.bundle  -> new JS bundle
+#   assets/<anything>            -> from rn_out/assets/
+#   res/<anything>               -> from rn_out/res/  (drawable updates)
+rn_files = {}
+
+def collect(base_dir, apk_prefix):
+    if not os.path.isdir(base_dir):
+        return
+    for root, _, files in os.walk(base_dir):
+        for f in files:
+            full = os.path.join(root, f)
+            rel  = apk_prefix + os.path.relpath(full, base_dir).replace(os.sep, '/')
+            rn_files[rel] = full
+
+collect(os.path.join(rn_out, 'assets'), 'assets/')
+collect(os.path.join(rn_out, 'res'),    'res/')
+# The main bundle always wins regardless of --assets-dest output
+rn_files['assets/index.android.bundle'] = bundle_path
+
+updated, added, skipped = [], [], []
+
+with zipfile.ZipFile(src_apk, 'r') as src, \
+     zipfile.ZipFile(dst_apk, 'w', compression=zipfile.ZIP_DEFLATED, allowZip64=True) as dst:
+
+    for info in src.infolist():
+        # Drop original signature — apksigner will re-sign
+        if info.filename.startswith('META-INF/'):
+            skipped.append(info.filename)
+            continue
+
+        if info.filename in rn_files:
+            # Replace entry — read new data from disk
+            with open(rn_files[info.filename], 'rb') as fh:
+                data = fh.read()
+            # Preserve the original compression type for this slot
+            new_info = zipfile.ZipInfo(info.filename, info.date_time)
+            new_info.compress_type = info.compress_type
+            new_info.external_attr  = info.external_attr
+            dst.writestr(new_info, data)
+            updated.append(info.filename)
+            rn_files.pop(info.filename)
+        else:
+            # Copy verbatim — preserves compress_type (STORED vs DEFLATED)
+            dst.writestr(info, src.read(info.filename))
+
+    # Any RN output not already present in the original APK → add as DEFLATED
+    for rel, path in rn_files.items():
+        with open(path, 'rb') as fh:
+            dst.write(path, rel, compress_type=zipfile.ZIP_DEFLATED)
+        added.append(rel)
+
+print(f'  ✅ Updated {len(updated)} entries: {updated}')
+if added:
+    print(f'  ➕ Added   {len(added)} new entries: {added}')
+if skipped:
+    print(f'  🗑️  Skipped {len(skipped)} META-INF entries')
+PYEOF
+
+# ── Align APK (4-byte alignment required; 4KB for page-aligned .so) ──────────
+ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+ANDROID_BUILD_TOOLS=$(ls -d "$ANDROID_HOME/build-tools/"* 2>/dev/null | sort -V | tail -1)
+ZIPALIGN="$ANDROID_BUILD_TOOLS/zipalign"
+
+if [[ -x "$ZIPALIGN" ]]; then
+  echo ""
+  echo "📐 Aligning APK..."
+  "$ZIPALIGN" -f -p 4 \
+    "$RELEASE_DOWNLOAD_DIR/repacked-unsigned.apk" \
+    "$RELEASE_DOWNLOAD_DIR/repacked-aligned.apk"
+  UNSIGNED_APK="$RELEASE_DOWNLOAD_DIR/repacked-aligned.apk"
+else
+  echo "⚠️  zipalign not found — skipping alignment (app may warn on install)."
+  UNSIGNED_APK="$RELEASE_DOWNLOAD_DIR/repacked-unsigned.apk"
 fi
-
-echo "🗑️  Removing old signature..."
-rm -rf "$UNPACKED_DIR/META-INF"
-
-echo "📁 Repacking unsigned APK..."
-(cd "$UNPACKED_DIR" && zip -qr ../repacked-unsigned.apk .)
 
 # ── Sign APK ─────────────────────────────────────────────────────────────────
 FULL_KEYSTORE_PATH="$SOURCE_DIR/$KEYSTORE_PATH"
@@ -185,10 +200,7 @@ if [[ ! -f "$FULL_KEYSTORE_PATH" ]]; then
   exit 1
 fi
 
-ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
-ANDROID_BUILD_TOOLS=$(ls -d "$ANDROID_HOME/build-tools/"* | sort -V | tail -1)
 APKSIGNER="$ANDROID_BUILD_TOOLS/apksigner"
-
 if [[ ! -x "$APKSIGNER" ]]; then
   echo "❌ apksigner not found at $APKSIGNER"
   echo "   Ensure ANDROID_HOME is set and build-tools are installed."
@@ -203,21 +215,10 @@ echo "✍️  Signing APK..."
   --ks-pass "pass:$KEYSTORE_PASSWORD" \
   --key-pass "pass:$KEY_PASSWORD" \
   --out "$RELEASE_DOWNLOAD_DIR/resigned-output.apk" \
-  "$RELEASE_DOWNLOAD_DIR/repacked-unsigned.apk"
+  "$UNSIGNED_APK"
 
-# ── Upload sourcemaps to Sentry (optional) ──────────────────────────────────
-if [[ -n "${SENTRY_AUTH_TOKEN:-}" && -n "${SENTRY_ORG:-}" && -n "${SENTRY_PROJECT:-}" ]]; then
-  echo ""
-  echo "📡 Uploading sourcemaps to Sentry (release: $APP_VERSION)..."
-  SENTRY_AUTH_TOKEN="$SENTRY_AUTH_TOKEN" npx sentry-cli sourcemaps upload \
-    --org "$SENTRY_ORG" \
-    --project "$SENTRY_PROJECT" \
-    --release "$APP_VERSION" \
-    "$BUNDLE_OUTPUT_DIR"
-  echo "✅ Sentry sourcemaps uploaded."
-else
-  echo "ℹ️  Skipping Sentry upload (SENTRY_AUTH_TOKEN / SENTRY_ORG / SENTRY_PROJECT not set)."
-fi
+# ── Upload sourcemaps to Sentry ──────────────────────────────────────────────
+common_upload_sentry
 
 echo ""
 echo "✅ Done! Signed APK: $RELEASE_DOWNLOAD_DIR/resigned-output.apk"
