@@ -108,6 +108,37 @@ common_bundle() {
       --bundle-output "$bundle_file" \
       --sourcemap-output "${bundle_file}.map" \
       --assets-dest "$BUNDLE_OUTPUT_DIR"
+      
+    echo "⚙️  Detecting Hermes compiler..."
+    # Locate hermesc inside the RN installation based on OS
+    OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
+    HERMESC_PATH=""
+    
+    if [[ "$OS_NAME" == "darwin" ]]; then
+      HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/react-native/sdks/hermesc/osx-bin/hermesc" -type f | head -n 1)
+      if [[ -z "$HERMESC_PATH" ]]; then
+        HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/@react-native/hermes-cli/osx-bin/hermesc" -type f | head -n 1)
+      fi
+    elif [[ "$OS_NAME" == "linux" ]]; then
+      HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/react-native/sdks/hermesc/linux64-bin/hermesc" -type f | head -n 1)
+      if [[ -z "$HERMESC_PATH" ]]; then
+        HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/@react-native/hermes-cli/linux64-bin/hermesc" -type f | head -n 1)
+      fi
+    fi
+
+    # Sometimes it's globally available or in another standard path
+    if [[ -z "$HERMESC_PATH" && -f "$SOURCE_DIR/node_modules/react-native/sdks/hermesc/build/bin/hermesc" ]]; then
+      HERMESC_PATH="$SOURCE_DIR/node_modules/react-native/sdks/hermesc/build/bin/hermesc"
+    fi
+
+    if [[ -n "$HERMESC_PATH" && -x "$HERMESC_PATH" ]]; then
+      echo "🔥 Compiling JS bundle to Hermes bytecode: $HERMESC_PATH"
+      "$HERMESC_PATH" -emit-binary -out "$bundle_file.hbc" "$bundle_file"
+      mv "$bundle_file.hbc" "$bundle_file"
+      echo "✅ Hermes bytecode compilation complete."
+    else
+      echo "⚠️  hermesc not found — skipping Hermes bytecode compilation. (Native app may expect ABC/HBC bytecode)"
+    fi
   )
 }
 
