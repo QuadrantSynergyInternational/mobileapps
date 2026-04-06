@@ -98,13 +98,7 @@ if [[ -z "$PROVISION_FILE" ]]; then
   exit 1
 fi
 
-# ── Cleanup helper ───────────────────────────────────────────────────────────
-cleanup() {
-  echo ""
-  echo "🧹 Cleaning up keychain..."
-  security delete-keychain "$KEYCHAIN_NAME" 2>/dev/null || true
-}
-trap cleanup EXIT
+
 
 mkdir -p "$WORK_DIR" "$BUNDLE_OUTPUT_DIR" "$RELEASE_DOWNLOAD_DIR"
 echo "🗂️  Work dir:      $WORK_DIR"
@@ -156,12 +150,29 @@ if [[ -f "$SENTRY_PROPS_FILE" ]]; then
   done < "$SENTRY_PROPS_FILE"
 fi
 
-# ── Validate P12 ─────────────────────────────────────────────────────────────
+# ── Setup keychain ────────────────────────────────────────────────────────────
 echo ""
-echo "🔍 Validating P12 at $P12_PATH..."
+echo "🔑 Setting up keychain..."
+# Save the current search list so we can restore it on exit
+ORIGINAL_KEYCHAINS=$(security list-keychains -d user | xargs)
+
+cleanup() {
+  echo ""
+  echo "🧹 Cleaning up keychain..."
+  # Restore original keychain search list
+  # shellcheck disable=SC2086
+  security list-keychains -d user -s $ORIGINAL_KEYCHAINS 2>/dev/null || true
+  security delete-keychain "$KEYCHAIN_NAME" 2>/dev/null || true
+}
+trap cleanup EXIT
+
 security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
 security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
 security set-keychain-settings -t 3600 -l "$KEYCHAIN_NAME"
+
+# Add to search list and make default so codesign can find the private key
+security list-keychains -d user -s "$KEYCHAIN_NAME" $ORIGINAL_KEYCHAINS
+security default-keychain -s "$KEYCHAIN_NAME"
 
 if security import "$P12_PATH" -k "$KEYCHAIN_NAME" \
      -P "$P12_PASSWORD" \
@@ -169,7 +180,7 @@ if security import "$P12_PATH" -k "$KEYCHAIN_NAME" \
      -T /usr/bin/security \
      -T /usr/bin/productbuild \
      -T /usr/bin/productsign; then
-  echo "✅ P12 valid"
+  echo "✅ P12 imported"
 else
   echo "❌ P12 import failed"
   exit 1
