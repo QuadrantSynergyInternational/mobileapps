@@ -1,275 +1,187 @@
-name: Repack and Resign Pipeline
+name: Repack and Release
 
 on:
   workflow_dispatch:
     inputs:
-      source_repo:
-        description: 'Source Repository URL (e.g. owner/repo) for React Native code'
+      params:
+        type: string
+        description: Build Params (JSON)
         required: true
-        type: string
-      source_branch:
-        description: 'Source Branch to checkout'
-        required: true
-        default: 'main'
-        type: string
-      release_repo:
-        description: 'Release Repository (e.g. owner/repo) containing the IPA/APK'
-        required: true
-        type: string
-      release_tag:
-        description: 'Release Tag to download assets from'
-        required: true
-        type: string
-      platform:
-        description: 'Target Platform'
-        required: true
-        type: choice
-        options:
-          - ios
-          - android
-      project_id:
-        description: 'Project ID (folder name in provision repo). Required for iOS.'
-        required: false
-        type: string
-      profile_name:
-        description: 'Profile/Certificate Name (filename without extension). Defaults to source_branch if empty.'
-        required: false
-        type: string
-      p12_password:
-        description: 'Password for the P12 certificate. Required for iOS.'
-        required: false
-        type: string
-      android_keystore_path:
-        description: 'Path to Android Keystore file (relative to source root). Required for Android.'
-        required: false
-        type: string
-      android_keystore_password:
-        description: 'Android Keystore Password'
-        required: false
-        type: string
-      android_key_alias:
-        description: 'Android Key Alias'
-        required: false
-        type: string
-      android_key_password:
-        description: 'Android Key Password'
-        required: false
-        type: string
-      apk_filename:
-        description: 'Name of APK asset to download (Android)'
-        required: false
-        default: 'app-release.apk'
-        type: string
-      ipa_filename:
-        description: 'Name of IPA asset to download (iOS)'
-        required: false
-        default: 'output-Release.ipa'
-        type: string
-      
-jobs:
-  repack_resign:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.source_repo }}
-          ref: ${{ inputs.source_branch }}
-          token: ${{ secrets.GH_PAT }}
-          path: source_code
 
-      - name: Clone Provision Repo
-        if: inputs.platform == 'ios'
-        run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
+jobs:
+  repack-android:
+    name: Repack APK
+    runs-on: macos-latest
+    if: ${{ fromJSON(github.event.inputs.params).platform == 'android' }}
+    steps:
+      - name: Checkout Workflow Scripts
+        uses: actions/checkout@v4
+
+      - name: Clone Source Repo
+        run: |
+          git clone --depth=1 --single-branch \
+            --branch=${{ fromJSON(github.event.inputs.params).branch }} \
+            https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} \
+            input
+
+      - name: Get App Version
+        id: package-version
+        working-directory: input
+        run: |
+          current_version=$(node -e "console.log(require('./package.json').version)")
+          echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
+
+      - name: Logging
+        run: |
+          curl -s -L -G -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          --data-urlencode 'wf_id=${{ github.run_id }}' \
+          --data-urlencode 'params=${{ github.event.inputs.params }}' \
+          --data-urlencode 'uniqueId=${{ fromJSON(github.event.inputs.params).uniqueId }}' \
+          --data-urlencode 'version=${{ steps.package-version.outputs.current-version }}' \
+          --data-urlencode 'platform=android' \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4.4.0
+        if: ${{ fromJSON(github.event.inputs.params).java != '' }}
+        with:
+          java-version: ${{ fromJSON(github.event.inputs.params).java }}
+          distribution: corretto
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.0.4
+        if: ${{ fromJSON(github.event.inputs.params).node != '' }}
         with:
-          node-version: 18
-          cache: 'yarn'
-          cache-dependency-path: source_code/yarn.lock
+          node-version: ${{ fromJSON(github.event.inputs.params).node }}
 
-      - name: Install Dependencies
-        working-directory: source_code
+      - name: Initialize Watchman
+        uses: ConorMacBride/install-package@v1
+        with:
+          brew: watchman
+
+      - name: Yarn Install
+        working-directory: input
         run: yarn install
 
-      - name: Bundle React Native (iOS)
-        if: inputs.platform == 'ios'
-        working-directory: source_code
-        run: |
-          mkdir -p ../bundle_output
-          npx react-native bundle \
-            --platform ios \
-            --dev false \
-            --entry-file index.js \
-            --bundle-output ../bundle_output/main.jsbundle \
-            --assets-dest ../bundle_output
-
-      - name: Bundle React Native (Android)
-        if: inputs.platform == 'android'
-        working-directory: source_code
-        run: |
-          mkdir -p ../bundle_output
-          npx react-native bundle \
-            --platform android \
-            --dev false \
-            --entry-file index.js \
-            --bundle-output ../bundle_output/index.android.bundle \
-            --assets-dest ../bundle_output
-
-      - name: Download Release Asset
+      - name: Repack and Sign APK
         env:
+          CI: "true"
+          WORK_DIR: ${{ github.workspace }}
+          SOURCE_DIR: ${{ github.workspace }}/input
+          BUNDLE_OUTPUT_DIR: ${{ github.workspace }}/bundle_output
+          RELEASE_DOWNLOAD_DIR: ${{ github.workspace }}/release_download
+          RELEASE_REPO: ${{ fromJSON(github.event.inputs.params).releaseRepo }}
+          RELEASE_TAG: ${{ fromJSON(github.event.inputs.params).releaseTag }}
+          APK_FILENAME: ${{ fromJSON(github.event.inputs.params).apkFilename || 'app-release.apk' }}
+          KEYSTORE_PATH: ${{ fromJSON(github.event.inputs.params).keystorePath }}
+          KEYSTORE_PASSWORD: ${{ fromJSON(github.event.inputs.params).keystorePassword }}
+          KEY_ALIAS: ${{ fromJSON(github.event.inputs.params).keyAlias }}
+          KEY_PASSWORD: ${{ fromJSON(github.event.inputs.params).keyPassword }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          mkdir -p release_download
-          if [ "${{ inputs.platform }}" == "ios" ]; then
-            gh release download ${{ inputs.release_tag }} \
-              -R ${{ inputs.release_repo }} \
-              -p "${{ inputs.ipa_filename }}" \
-              -D release_download
-          else
-            gh release download ${{ inputs.release_tag }} \
-              -R ${{ inputs.release_repo }} \
-              -p "${{ inputs.apk_filename }}" \
-              -D release_download
-          fi
+        run: bash scripts/repack_android.sh
 
-      - name: Process IPA (Unpack, Replace, Resign)
-        if: inputs.platform == 'ios'
-        env:
-          IPA_NAME: ${{ inputs.ipa_filename }}
-          PROJECT_ID: ${{ inputs.project_id }}
-          PROFILE_NAME: ${{ inputs.profile_name || inputs.source_branch }}
-          P12_PASSWORD: ${{ inputs.p12_password }}
-          KEYCHAIN_PASSWORD: "tempKeychainPassword"
-        run: |
-          cd release_download
-          
-          # Unpack
-          echo "Unpacking $IPA_NAME..."
-          unzip -q "$IPA_NAME" -d unpacked_ipa
-          
-          # Find the .app folder
-          APP_NAME=$(ls unpacked_ipa/Payload | grep .app | head -n 1)
-          echo "Found app: $APP_NAME"
-          
-          # Replace bundle
-          echo "Replacing main.jsbundle..."
-          cp ../bundle_output/main.jsbundle "unpacked_ipa/Payload/$APP_NAME/main.jsbundle"
-          
-          # Replace assets (if they exist)
-          if [ -d "../bundle_output/assets" ]; then
-             echo "Updating assets..."
-             cp -R ../bundle_output/assets/* "unpacked_ipa/Payload/$APP_NAME/assets/" || true
-          fi
-
-          # Paths to provision files
-          # provision repo is cloned in the root, so path is ../provision
-          P12_PATH="../provision/$PROJECT_ID/$PROFILE_NAME.p12"
-          MOBILEPROVISION_PATH="../provision/$PROJECT_ID/$PROFILE_NAME.mobileprovision"
-
-          if [[ -f "$P12_PATH" && -f "$MOBILEPROVISION_PATH" ]]; then
-            echo "Certificates found at $P12_PATH and $MOBILEPROVISION_PATH"
-            echo "Starting resignation process..."
-
-            # Create temporary keychain
-            security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-            security default-keychain -s build.keychain
-            security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-            security set-keychain-settings -t 3600 -l ~/Library/Keychains/build.keychain
-
-            # Import Certificate
-            security import "$P12_PATH" -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
-            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-
-            # Import Provisioning Profile
-            # Embed the new mobileprovision
-            cp "$MOBILEPROVISION_PATH" "unpacked_ipa/Payload/$APP_NAME/embedded.mobileprovision"
-            
-            # Find Identity
-            IDENTITY=$(security find-identity -v -p codesigning build.keychain | head -1 | grep -o '"[^"]*"' | tr -d '"')
-            echo "Signing with Identity: $IDENTITY"
-
-            # Resign
-            # Simply forcing codesign might preserve existing entitlements if we don't specify --entitlements.
-            # To be robust, we should probably extract entitlements from the new mobileprovision or the old binary, but standard codesign often handles this.
-            # If explicit entitlements are needed, we can extract them from the mobileprovision:
-            # security cms -D -i "$MOBILEPROVISION_PATH" > provision.plist
-            # /usr/libexec/PlistBuddy -x -c 'Print :Entitlements' provision.plist > entitlements.plist
-            # /usr/bin/codesign --force --sign "$IDENTITY" --entitlements entitlements.plist ...
-            
-            # Simple Signing (Using embedded entitlements)
-            /usr/bin/codesign --force --sign "$IDENTITY" --keychain build.keychain "unpacked_ipa/Payload/$APP_NAME"
-            
-            echo "Resigned successfully."
-          else
-            echo "ERROR: Signing files not found!"
-            echo "Checked: $P12_PATH"
-            echo "Checked: $MOBILEPROVISION_PATH"
-            exit 1
-          fi
-          
-          # Repack
-          cd unpacked_ipa
-          zip -qry ../resigned-output.ipa Payload
-          cd ..
-
-      - name: Process APK (Unpack, Replace, Resign)
-        if: inputs.platform == 'android'
-        env:
-          APK_NAME: ${{ inputs.apk_filename }}
-          KEYSTORE_PATH: ${{ inputs.android_keystore_path }}
-          KEYSTORE_PASSWORD: ${{ inputs.android_keystore_password }}
-          KEY_ALIAS: ${{ inputs.android_key_alias }}
-          KEY_PASSWORD: ${{ inputs.android_key_password }}
-        run: |
-          cd release_download
-          
-          # Unpack
-          echo "Unpacking $APK_NAME..."
-          unzip -q "$APK_NAME" -d unpacked_apk
-          
-          # Replace Bundle
-          echo "Replacing index.android.bundle..."
-          # Ensure target directory exists (it should in a valid APK)
-          mkdir -p unpacked_apk/assets
-          cp ../bundle_output/index.android.bundle unpacked_apk/assets/index.android.bundle
-          
-          # Remove old signature
-          rm -rf unpacked_apk/META-INF
-          
-          # Repack
-          cd unpacked_apk
-          zip -qr ../repacked-unsigned.apk .
-          cd ..
-          
-          # Resign
-          FULL_KEYSTORE_PATH="../source_code/$KEYSTORE_PATH"
-          if [[ -n "$KEYSTORE_PATH" && -f "$FULL_KEYSTORE_PATH" ]]; then
-             echo "Keystore found at $FULL_KEYSTORE_PATH"
-             
-             # Locate apksigner
-             ANDROID_BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -1)
-             APKSIGNER="$ANDROID_BUILD_TOOLS/apksigner"
-             echo "Using apksigner at $APKSIGNER"
-             
-             "$APKSIGNER" sign --ks "$FULL_KEYSTORE_PATH" \
-               --ks-key-alias "$KEY_ALIAS" \
-               --ks-pass "pass:$KEYSTORE_PASSWORD" \
-               --key-pass "pass:$KEY_PASSWORD" \
-               --out resigned-output.apk \
-               repacked-unsigned.apk
-               
-             echo "Resigned successfully."
-          else
-             echo "ERROR: Keystore not found at $FULL_KEYSTORE_PATH"
-             exit 1
-          fi
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload to Release
+        id: release
+        uses: muhamad-rizki/action-gh-release@v3.0.1
         with:
-          name: resigned-app-${{ inputs.platform }}
-          path: |
-            release_download/resigned-output.ipa
-            release_download/resigned-output.apk
+          repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: release_download/resigned-output.apk
+          tag_name: "v${{ steps.package-version.outputs.current-version }}-${{ fromJSON(github.event.inputs.params).configuration }}-${{ fromJSON(github.event.inputs.params).branch }}"
+          body: "Repacked APK v${{ steps.package-version.outputs.current-version }} (${{ fromJSON(github.event.inputs.params).configuration }})"
+          body_path: ./input/${{ fromJSON(github.event.inputs.params).releasenote != '' && fromJSON(github.event.inputs.params).releasenote || 'releasenote.md' }}
+
+      - name: Update DB
+        run: |
+          curl -s -L -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/release?id=${{ steps.release.outputs.id }}
+
+  repack-ios:
+    name: Repack IPA
+    runs-on: macos-14
+    if: ${{ fromJSON(github.event.inputs.params).platform == 'ios' }}
+    steps:
+      - name: Checkout Workflow Scripts
+        uses: actions/checkout@v4
+
+      - name: Clone Source Repo
+        run: |
+          git clone --depth=1 --single-branch \
+            --branch=${{ fromJSON(github.event.inputs.params).branch }} \
+            https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} \
+            input
+
+      - name: Clone Provision Repo
+        run: |
+          git clone --depth=1 --single-branch --branch=main \
+            https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git \
+            provision
+
+      - name: Get App Version
+        id: package-version
+        working-directory: input
+        run: |
+          current_version=$(node -e "console.log(require('./package.json').version)")
+          echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
+
+      - name: Logging
+        run: |
+          curl -s -L -G -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          --data-urlencode 'wf_id=${{ github.run_id }}' \
+          --data-urlencode 'params=${{ github.event.inputs.params }}' \
+          --data-urlencode 'uniqueId=${{ fromJSON(github.event.inputs.params).uniqueId }}' \
+          --data-urlencode 'version=${{ steps.package-version.outputs.current-version }}' \
+          --data-urlencode 'platform=ios' \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4.0.4
+        if: ${{ fromJSON(github.event.inputs.params).node != '' }}
+        with:
+          node-version: ${{ fromJSON(github.event.inputs.params).node }}
+
+      - name: Install & Cache Watchman
+        uses: ConorMacBride/install-package@v1
+        with:
+          brew: watchman
+
+      - name: Yarn Install
+        working-directory: input
+        run: yarn install
+
+      - name: Repack and Sign IPA
+        env:
+          CI: "true"
+          WORK_DIR: ${{ github.workspace }}
+          SOURCE_DIR: ${{ github.workspace }}/input
+          PROVISION_DIR: ${{ github.workspace }}/provision
+          BUNDLE_OUTPUT_DIR: ${{ github.workspace }}/bundle_output
+          RELEASE_DOWNLOAD_DIR: ${{ github.workspace }}/release_download
+          RELEASE_REPO: ${{ fromJSON(github.event.inputs.params).releaseRepo }}
+          RELEASE_TAG: ${{ fromJSON(github.event.inputs.params).releaseTag }}
+          IPA_FILENAME: ${{ fromJSON(github.event.inputs.params).ipaFilename || 'output-Release.ipa' }}
+          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
+          PROVISION_FILE: ${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}
+          P12_PASSWORD: ${{ fromJSON(github.event.inputs.params).p12pass || '' }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: bash scripts/repack_ios.sh
+
+      - name: Upload to Release
+        id: release
+        uses: muhamad-rizki/action-gh-release@v3.0.1
+        with:
+          repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: release_download/resigned-output.ipa
+          tag_name: "v${{ steps.package-version.outputs.current-version }}-${{ fromJSON(github.event.inputs.params).configuration }}-${{ fromJSON(github.event.inputs.params).branch }}"
+          body: "Repacked IPA v${{ steps.package-version.outputs.current-version }} (${{ fromJSON(github.event.inputs.params).configuration }})"
+          body_path: ./input/${{ fromJSON(github.event.inputs.params).releasenote != '' && fromJSON(github.event.inputs.params).releasenote || 'releasenote.md' }}
+
+      - name: Update DB
+        run: |
+          curl -s -L -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/release?id=${{ steps.release.outputs.id }}
