@@ -31,13 +31,17 @@
 #   GIT_PASSWORD          Git password/token              — required in local mode
 #   PROVISION_REPO_TOKEN  Token for ios-provision         — required in local mode
 #   PROVISION_FILE        Provision filename without extension (default: $REPO_BRANCH)
-#   IPA_FILENAME          IPA asset filename (default: output-Release.ipa)
+#   IPA_FILENAME          IPA glob/filename to download (default: *.ipa)
 #   WORK_DIR              Root working dir   (default: /tmp/repack_ios_$$)
 #   SOURCE_DIR            Path to cloned source       (default: $WORK_DIR/input)
 #   PROVISION_DIR         Path to provision repo      (default: $WORK_DIR/provision)
 #   BUNDLE_OUTPUT_DIR     Bundle output dir           (default: $WORK_DIR/bundle_output)
 #   RELEASE_DOWNLOAD_DIR  Download dir                (default: $WORK_DIR/release_download)
 #   CI                    Set to 'true' to skip clone + install steps
+#   SENTRY_AUTH_TOKEN     Sentry auth token  (optional — skip upload if unset)
+#   SENTRY_ORG            Sentry org slug    (optional)
+#   SENTRY_PROJECT        Sentry project slug (optional)
+#   APP_VERSION           Override version string for Sentry release (optional)
 #
 # macOS-only (requires: security, codesign, zip, gh CLI)
 # ---------------------------------------------------------------------------
@@ -65,7 +69,7 @@ if [[ "${CI:-false}" != "true" ]]; then
 fi
 
 # ── Defaults ────────────────────────────────────────────────────────────────
-IPA_FILENAME="${IPA_FILENAME:-output-Release.ipa}"
+IPA_FILENAME="${IPA_FILENAME:-*.ipa}"
 CI="${CI:-false}"
 WORK_DIR="${WORK_DIR:-/tmp/repack_ios_$$}"
 SOURCE_DIR="${SOURCE_DIR:-$WORK_DIR/input}"
@@ -133,6 +137,25 @@ fi
 P12_PATH="$PROVISION_DIR/$PROJECT_ID/$PROVISION_FILE.p12"
 MOBILEPROVISION_PATH="$PROVISION_DIR/$PROJECT_ID/$PROVISION_FILE.mobileprovision"
 
+# ── Load sentry.properties (optional) ───────────────────────────────────────
+# Reads from source root. Env vars take precedence over file values.
+SENTRY_PROPS_FILE="$SOURCE_DIR/sentry.properties"
+if [[ -f "$SENTRY_PROPS_FILE" ]]; then
+  echo ""
+  echo "📋 Loading Sentry config from $SENTRY_PROPS_FILE..."
+  while IFS='=' read -r key value; do
+    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${key// }" ]] && continue
+    key="${key// /}"
+    value="${value// /}"
+    case "$key" in
+      auth.token)       SENTRY_AUTH_TOKEN="${SENTRY_AUTH_TOKEN:-$value}" ;;
+      defaults.org)     SENTRY_ORG="${SENTRY_ORG:-$value}" ;;
+      defaults.project) SENTRY_PROJECT="${SENTRY_PROJECT:-$value}" ;;
+    esac
+  done < "$SENTRY_PROPS_FILE"
+fi
+
 # ── Validate P12 ─────────────────────────────────────────────────────────────
 echo ""
 echo "🔍 Validating P12 at $P12_PATH..."
@@ -157,6 +180,8 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN
 # ── Bundle React Native ──────────────────────────────────────────────────────
 echo ""
 echo "🏗️  Bundling React Native (ios)..."
+APP_VERSION="${APP_VERSION:-$(node -e "console.log(require('$SOURCE_DIR/package.json').version)")}"
+echo "📌 App version: $APP_VERSION"
 (
   cd "$SOURCE_DIR"
   npx react-native bundle \
@@ -164,21 +189,30 @@ echo "🏗️  Bundling React Native (ios)..."
     --dev false \
     --entry-file index.js \
     --bundle-output "$BUNDLE_OUTPUT_DIR/main.jsbundle" \
+    --sourcemap-output "$BUNDLE_OUTPUT_DIR/main.jsbundle.map" \
     --assets-dest "$BUNDLE_OUTPUT_DIR"
 )
 
 # ── Download release IPA ─────────────────────────────────────────────────────
 echo ""
-echo "⬇️  Downloading $IPA_FILENAME from $RELEASE_REPO@$RELEASE_TAG..."
+echo "⬇️  Downloading IPA ($IPA_FILENAME) from $RELEASE_REPO@$RELEASE_TAG..."
 GH_TOKEN="$GH_TOKEN" gh release download "$RELEASE_TAG" \
   -R "$RELEASE_REPO" \
   -p "$IPA_FILENAME" \
   -D "$RELEASE_DOWNLOAD_DIR"
 
+# Resolve the actual downloaded filename (supports glob patterns like *.ipa)
+DOWNLOADED_IPA=$(find "$RELEASE_DOWNLOAD_DIR" -maxdepth 1 -name '*.ipa' | head -n 1)
+if [[ -z "$DOWNLOADED_IPA" ]]; then
+  echo "❌ No IPA file found in $RELEASE_DOWNLOAD_DIR after download."
+  exit 1
+fi
+echo "📦 Found IPA: $(basename "$DOWNLOADED_IPA")"
+
 # ── Unpack + replace bundle ──────────────────────────────────────────────────
 echo ""
 echo "📦 Unpacking IPA..."
-unzip -q "$RELEASE_DOWNLOAD_DIR/$IPA_FILENAME" -d "$RELEASE_DOWNLOAD_DIR/unpacked_ipa"
+unzip -qo "$DOWNLOADED_IPA" -d "$RELEASE_DOWNLOAD_DIR/unpacked_ipa"
 
 APP_NAME=$(ls "$RELEASE_DOWNLOAD_DIR/unpacked_ipa/Payload" | grep '\.app$' | head -n 1)
 echo "📱 Found app bundle: $APP_NAME"
@@ -209,6 +243,20 @@ echo "🔑 Signing with identity: $IDENTITY"
 # ── Repack ───────────────────────────────────────────────────────────────────
 echo "📁 Repacking signed IPA..."
 (cd "$RELEASE_DOWNLOAD_DIR/unpacked_ipa" && zip -qry ../resigned-output.ipa Payload)
+
+# ── Upload sourcemaps to Sentry (optional) ──────────────────────────────────
+if [[ -n "${SENTRY_AUTH_TOKEN:-}" && -n "${SENTRY_ORG:-}" && -n "${SENTRY_PROJECT:-}" ]]; then
+  echo ""
+  echo "📡 Uploading sourcemaps to Sentry (release: $APP_VERSION)..."
+  SENTRY_AUTH_TOKEN="$SENTRY_AUTH_TOKEN" npx sentry-cli sourcemaps upload \
+    --org "$SENTRY_ORG" \
+    --project "$SENTRY_PROJECT" \
+    --release "$APP_VERSION" \
+    "$BUNDLE_OUTPUT_DIR"
+  echo "✅ Sentry sourcemaps uploaded."
+else
+  echo "ℹ️  Skipping Sentry upload (SENTRY_AUTH_TOKEN / SENTRY_ORG / SENTRY_PROJECT not set)."
+fi
 
 echo ""
 echo "✅ Done! Signed IPA: $RELEASE_DOWNLOAD_DIR/resigned-output.ipa"

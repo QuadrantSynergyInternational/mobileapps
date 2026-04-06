@@ -79,6 +79,10 @@ jobs:
           KEY_ALIAS: ${{ fromJSON(github.event.inputs.params).keyAlias }}
           KEY_PASSWORD: ${{ fromJSON(github.event.inputs.params).keyPassword }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
+          APP_VERSION: ${{ steps.package-version.outputs.current-version }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ fromJSON(github.event.inputs.params).sentryProject || '' }}
         run: bash scripts/repack_android.sh
 
       - name: Upload to Release
@@ -162,11 +166,15 @@ jobs:
           RELEASE_DOWNLOAD_DIR: ${{ github.workspace }}/release_download
           RELEASE_REPO: ${{ fromJSON(github.event.inputs.params).releaseRepo }}
           RELEASE_TAG: ${{ fromJSON(github.event.inputs.params).releaseTag }}
-          IPA_FILENAME: ${{ fromJSON(github.event.inputs.params).ipaFilename || 'output-Release.ipa' }}
+          IPA_FILENAME: ${{ fromJSON(github.event.inputs.params).ipaFilename || '*.ipa' }}
           PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
           PROVISION_FILE: ${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}
           P12_PASSWORD: ${{ fromJSON(github.event.inputs.params).p12pass || '' }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
+          APP_VERSION: ${{ steps.package-version.outputs.current-version }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ fromJSON(github.event.inputs.params).sentryProject || '' }}
         run: bash scripts/repack_ios.sh
 
       - name: Upload to Release

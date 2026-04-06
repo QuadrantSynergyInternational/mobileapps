@@ -3,18 +3,10 @@
 # repack_android.sh — Repack and resign an Android APK with a fresh JS bundle
 #
 # Usage (local):
-#   export REPO_URL=https://user:token@github.com/org/repo
-#   export REPO_BRANCH=main
-#   export RELEASE_REPO=org/release-repo
-#   export RELEASE_TAG=v1.0.0-Release-main
-#   export KEYSTORE_PATH=android/app/release.keystore   # relative to source root
-#   export KEYSTORE_PASSWORD=...
-#   export KEY_ALIAS=...
-#   export KEY_PASSWORD=...
-#   export GH_TOKEN=...
 #   chmod +x scripts/repack_android.sh && ./scripts/repack_android.sh
+#   (env vars auto-loaded from scripts/.env or .env if present)
 #
-# Usage (CI — set WORK_DIR=. to skip clone/provision, dirs already exist):
+# Usage (CI — set CI=true, dirs pre-populated by workflow steps):
 #   The workflow sets WORK_DIR, SOURCE_DIR, BUNDLE_OUTPUT_DIR, RELEASE_DOWNLOAD_DIR
 #   and calls this script after checkout + yarn install steps.
 #
@@ -32,12 +24,16 @@
 #   REPO_BRANCH           Branch to clone                — required in local mode
 #   GIT_USERNAME          Git username for self-hosted    — required in local mode
 #   GIT_PASSWORD          Git password/token              — required in local mode
-#   APK_FILENAME          APK asset name (default: app-release.apk)
+#   APK_FILENAME          APK glob/filename to download (default: *.apk)
 #   WORK_DIR              Root working dir  (default: /tmp/repack_android_$$)
 #   SOURCE_DIR            Path to cloned source (default: $WORK_DIR/input)
 #   BUNDLE_OUTPUT_DIR     Bundle output dir  (default: $WORK_DIR/bundle_output)
 #   RELEASE_DOWNLOAD_DIR  Download dir       (default: $WORK_DIR/release_download)
 #   CI                    Set to 'true' to skip clone + install steps
+#   APP_VERSION           Override version string for Sentry release (optional)
+#   SENTRY_AUTH_TOKEN     Sentry auth token  (optional — also read from sentry.properties)
+#   SENTRY_ORG            Sentry org slug    (optional — also read from sentry.properties)
+#   SENTRY_PROJECT        Sentry project slug (optional — also read from sentry.properties)
 # ---------------------------------------------------------------------------
 
 set -euo pipefail
@@ -58,7 +54,7 @@ if [[ "${CI:-false}" != "true" ]]; then
 fi
 
 # ── Defaults ────────────────────────────────────────────────────────────────
-APK_FILENAME="${APK_FILENAME:-app-release.apk}"
+APK_FILENAME="${APK_FILENAME:-*.apk}"
 WORK_DIR="${WORK_DIR:-/tmp/repack_android_$$}"
 SOURCE_DIR="${SOURCE_DIR:-$WORK_DIR/input}"
 BUNDLE_OUTPUT_DIR="${BUNDLE_OUTPUT_DIR:-$WORK_DIR/bundle_output}"
@@ -98,9 +94,32 @@ if [[ "$CI" != "true" ]]; then
   (cd "$SOURCE_DIR" && yarn install)
 fi
 
+# ── Load sentry.properties (optional) ───────────────────────────────────────
+# Reads defaults.properties or sentry.properties from the source root.
+# Env vars take precedence over values in the file.
+SENTRY_PROPS_FILE="$SOURCE_DIR/sentry.properties"
+if [[ -f "$SENTRY_PROPS_FILE" ]]; then
+  echo ""
+  echo "📋 Loading Sentry config from $SENTRY_PROPS_FILE..."
+  while IFS='=' read -r key value; do
+    # Skip comments and blank lines
+    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${key// }" ]] && continue
+    key="${key// /}"
+    value="${value// /}"
+    case "$key" in
+      auth.token)   SENTRY_AUTH_TOKEN="${SENTRY_AUTH_TOKEN:-$value}" ;;
+      defaults.org) SENTRY_ORG="${SENTRY_ORG:-$value}" ;;
+      defaults.project) SENTRY_PROJECT="${SENTRY_PROJECT:-$value}" ;;
+    esac
+  done < "$SENTRY_PROPS_FILE"
+fi
+
 # ── Bundle React Native ──────────────────────────────────────────────────────
 echo ""
 echo "🏗️  Bundling React Native (android)..."
+APP_VERSION="${APP_VERSION:-$(node -e "console.log(require('$SOURCE_DIR/package.json').version)")}"
+echo "📌 App version: $APP_VERSION"
 (
   cd "$SOURCE_DIR"
   npx react-native bundle \
@@ -108,37 +127,46 @@ echo "🏗️  Bundling React Native (android)..."
     --dev false \
     --entry-file index.js \
     --bundle-output "$BUNDLE_OUTPUT_DIR/index.android.bundle" \
+    --sourcemap-output "$BUNDLE_OUTPUT_DIR/index.android.bundle.map" \
     --assets-dest "$BUNDLE_OUTPUT_DIR"
 )
 
 # ── Download release APK ─────────────────────────────────────────────────────
 echo ""
-echo "⬇️  Downloading $APK_FILENAME from $RELEASE_REPO@$RELEASE_TAG..."
+echo "⬇️  Downloading APK ($APK_FILENAME) from $RELEASE_REPO@$RELEASE_TAG..."
 GH_TOKEN="$GH_TOKEN" gh release download "$RELEASE_TAG" \
   -R "$RELEASE_REPO" \
   -p "$APK_FILENAME" \
   -D "$RELEASE_DOWNLOAD_DIR"
 
+# Resolve the actual downloaded filename (supports glob patterns like *.apk)
+DOWNLOADED_APK=$(find "$RELEASE_DOWNLOAD_DIR" -maxdepth 1 -name '*.apk' | sort | head -n 1)
+if [[ -z "$DOWNLOADED_APK" ]]; then
+  echo "❌ No APK file found in $RELEASE_DOWNLOAD_DIR after download."
+  exit 1
+fi
+echo "📦 Found APK: $(basename "$DOWNLOADED_APK")"
+
 # ── Unpack + replace bundle ──────────────────────────────────────────────────
+UNPACKED_DIR="$RELEASE_DOWNLOAD_DIR/unpacked_apk"
 echo ""
 echo "📦 Unpacking APK..."
-unzip -q "$RELEASE_DOWNLOAD_DIR/$APK_FILENAME" -d "$RELEASE_DOWNLOAD_DIR/unpacked_apk"
+unzip -qo "$DOWNLOADED_APK" -d "$UNPACKED_DIR"
 
 echo "🔄 Replacing index.android.bundle..."
-mkdir -p "$RELEASE_DOWNLOAD_DIR/unpacked_apk/assets"
-cp "$BUNDLE_OUTPUT_DIR/index.android.bundle" "$RELEASE_DOWNLOAD_DIR/unpacked_apk/assets/index.android.bundle"
+mkdir -p "$UNPACKED_DIR/assets"
+cp "$BUNDLE_OUTPUT_DIR/index.android.bundle" "$UNPACKED_DIR/assets/index.android.bundle"
 
 if [ -d "$BUNDLE_OUTPUT_DIR/assets" ]; then
   echo "🖼️  Syncing assets..."
-  cp -R "$BUNDLE_OUTPUT_DIR/assets/." "$RELEASE_DOWNLOAD_DIR/unpacked_apk/assets/" || true
+  cp -R "$BUNDLE_OUTPUT_DIR/assets/." "$UNPACKED_DIR/assets/" || true
 fi
 
-# ── Remove old signature + repack ───────────────────────────────────────────
 echo "🗑️  Removing old signature..."
-rm -rf "$RELEASE_DOWNLOAD_DIR/unpacked_apk/META-INF"
+rm -rf "$UNPACKED_DIR/META-INF"
 
 echo "📁 Repacking unsigned APK..."
-(cd "$RELEASE_DOWNLOAD_DIR/unpacked_apk" && zip -qr ../repacked-unsigned.apk .)
+(cd "$UNPACKED_DIR" && zip -qr ../repacked-unsigned.apk .)
 
 # ── Sign APK ─────────────────────────────────────────────────────────────────
 FULL_KEYSTORE_PATH="$SOURCE_DIR/$KEYSTORE_PATH"
@@ -157,6 +185,7 @@ if [[ ! -x "$APKSIGNER" ]]; then
   exit 1
 fi
 
+echo ""
 echo "✍️  Signing APK..."
 "$APKSIGNER" sign \
   --ks "$FULL_KEYSTORE_PATH" \
@@ -165,6 +194,20 @@ echo "✍️  Signing APK..."
   --key-pass "pass:$KEY_PASSWORD" \
   --out "$RELEASE_DOWNLOAD_DIR/resigned-output.apk" \
   "$RELEASE_DOWNLOAD_DIR/repacked-unsigned.apk"
+
+# ── Upload sourcemaps to Sentry (optional) ──────────────────────────────────
+if [[ -n "${SENTRY_AUTH_TOKEN:-}" && -n "${SENTRY_ORG:-}" && -n "${SENTRY_PROJECT:-}" ]]; then
+  echo ""
+  echo "📡 Uploading sourcemaps to Sentry (release: $APP_VERSION)..."
+  SENTRY_AUTH_TOKEN="$SENTRY_AUTH_TOKEN" npx sentry-cli sourcemaps upload \
+    --org "$SENTRY_ORG" \
+    --project "$SENTRY_PROJECT" \
+    --release "$APP_VERSION" \
+    "$BUNDLE_OUTPUT_DIR"
+  echo "✅ Sentry sourcemaps uploaded."
+else
+  echo "ℹ️  Skipping Sentry upload (SENTRY_AUTH_TOKEN / SENTRY_ORG / SENTRY_PROJECT not set)."
+fi
 
 echo ""
 echo "✅ Done! Signed APK: $RELEASE_DOWNLOAD_DIR/resigned-output.apk"
