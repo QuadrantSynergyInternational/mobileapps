@@ -118,7 +118,7 @@ jobs:
             release_download/manifest.plist
           tag_name: "v${{ steps.package-version.outputs.current-version }}-${{ fromJSON(steps.fetch-config.outputs.params).configuration }}-${{ fromJSON(steps.fetch-config.outputs.params).branch }}"
           body: "Repacked IPA v${{ steps.package-version.outputs.current-version }} (${{ fromJSON(steps.fetch-config.outputs.params).configuration }})"
-          body_path: ./input/${{ fromJSON(steps.fetch-config.outputs.params).releasenote != '' && fromJSON(steps.fetch-config.outputs.params).releasenote != null ? fromJSON(steps.fetch-config.outputs.params).releasenote : 'releasenote.md' }}
+          body_path: ./input/${{ fromJSON(steps.fetch-config.outputs.params).releasenote || 'releasenote.md' }}
 
       - name: Update DB
         run: |
