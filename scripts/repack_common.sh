@@ -251,7 +251,7 @@ common_upload_sentry() {
   if [[ -n "${SENTRY_AUTH_TOKEN:-}" && -n "${SENTRY_ORG:-}" && -n "${SENTRY_PROJECT:-}" ]]; then
     echo ""
     echo "📡 Uploading sourcemaps to Sentry (release: $APP_VERSION)..."
-    SENTRY_AUTH_TOKEN="$SENTRY_AUTH_TOKEN" npx sentry-cli sourcemaps upload \
+    SENTRY_AUTH_TOKEN="$SENTRY_AUTH_TOKEN" npx -y @sentry/cli sourcemaps upload \
       --org "$SENTRY_ORG" \
       --project "$SENTRY_PROJECT" \
       --release "$APP_VERSION" \
