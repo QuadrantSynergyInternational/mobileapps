@@ -1,4 +1,4 @@
-name: Build iOS IPA
+name: Build iOS IPA (NEW)
 on:
   workflow_dispatch:
     inputs:
@@ -6,7 +6,6 @@ on:
         type: string
         description: Project ID
         required: true
-
 jobs:
   build:
     runs-on: macos-14
