@@ -1,0 +1,128 @@
+name: Repack and Release iOS
+on:
+  workflow_dispatch:
+    inputs:
+      projectid:
+        type: string
+        description: Project ID
+        required: true
+
+jobs:
+  repack:
+    name: Repack IPA
+    runs-on: macos-14
+    steps:
+      - name: Checkout Workflow Scripts
+        uses: actions/checkout@v4
+
+      - name: Fetch Build Configuration
+        id: fetch-config
+        run: |
+          PARAMS=$(curl -s -f -L -G \
+            -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+            "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/buildparams?platform=ios")
+          echo "params=$PARAMS" >> "$GITHUB_OUTPUT"
+          
+          PROVISION_FILE=$(echo "$PARAMS" | jq -r 'if .provisionfile and .provisionfile != "" then .provisionfile else .branch end')
+          echo "provision_file=$PROVISION_FILE" >> "$GITHUB_OUTPUT"
+          
+          PROVISION_RES=$(curl -s -f -L -G \
+            -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+            "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/provision?name=${PROVISION_FILE}.p12&details=true")
+          echo "provision=$PROVISION_RES" >> "$GITHUB_OUTPUT"
+
+      - name: Clone Source Repo
+        run: |
+          git clone --depth=1 --single-branch \
+            --branch=${{ fromJSON(steps.fetch-config.outputs.params).branch }} \
+            https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(steps.fetch-config.outputs.params).repo }} \
+            input
+
+      - name: Clone Provision Repo
+        run: |
+          git clone --depth=1 --single-branch --branch=main \
+            https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git \
+            provision
+
+      - name: Get App Version
+        id: package-version
+        working-directory: input
+        run: |
+          current_version=$(node -e "console.log(require('./package.json').version)")
+          echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
+
+      - name: Logging
+        run: |
+          curl -s -f -L -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          --data-urlencode "wf_id=${{ github.run_id }}" \
+          --data-urlencode "params=${{ steps.fetch-config.outputs.params }}" \
+          --data-urlencode "uniqueId=${{ fromJSON(steps.fetch-config.outputs.params).uniqueId }}" \
+          --data-urlencode "version=${{ steps.package-version.outputs.current-version }}" \
+          --data-urlencode "platform=ios" \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/trigger-log
+
+      - name: Setup Node.js
+        if: ${{ fromJSON(steps.fetch-config.outputs.params).node != '' && fromJSON(steps.fetch-config.outputs.params).node != null }}
+        uses: actions/setup-node@v4.0.4
+        with:
+          node-version: ${{ fromJSON(steps.fetch-config.outputs.params).node }}
+          cache: 'yarn'
+          cache-dependency-path: input/yarn.lock
+
+      - name: Install Watchman
+        uses: ConorMacBride/install-package@v1
+        with:
+          brew: watchman
+
+      - name: Install Dependencies
+        working-directory: input
+        run: |
+          corepack enable
+          if [ -f "yarn.lock" ]; then
+            yarn install
+          elif [ -f "pnpm-lock.yaml" ]; then
+            pnpm install
+          else
+            npm install
+          fi
+
+      - name: Repack and Sign IPA
+        env:
+          CI: "true"
+          WORK_DIR: ${{ github.workspace }}
+          SOURCE_DIR: ${{ github.workspace }}/input
+          PROVISION_DIR: ${{ github.workspace }}/provision
+          BUNDLE_OUTPUT_DIR: ${{ github.workspace }}/bundle_output
+          RELEASE_DOWNLOAD_DIR: ${{ github.workspace }}/release_download
+          RELEASE_REPO: ${{ fromJSON(steps.fetch-config.outputs.params).releaseRepo }}
+          RELEASE_TAG: ${{ fromJSON(steps.fetch-config.outputs.params).releaseTag }}
+          IPA_FILENAME: ${{ fromJSON(steps.fetch-config.outputs.params).ipaFilename || '*.ipa' }}
+          PROJECT_ID: ${{ github.event.inputs.projectid }}
+          PROVISION_FILE: ${{ steps.fetch-config.outputs.provision_file }}
+          P12_PASSWORD: ${{ fromJSON(steps.fetch-config.outputs.provision).password || '' }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          APP_VERSION: ${{ steps.package-version.outputs.current-version }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ fromJSON(steps.fetch-config.outputs.params).sentryProject || '' }}
+        run: bash scripts/repack_ios.sh
+
+      - name: Upload to Release
+        id: release
+        uses: muhamad-rizki/action-gh-release@v3.0.1
+        with:
+          repository: ${{ fromJSON(steps.fetch-config.outputs.params).releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: |
+            release_download/resigned-output.ipa
+            release_download/manifest.plist
+          tag_name: "v${{ steps.package-version.outputs.current-version }}-${{ fromJSON(steps.fetch-config.outputs.params).configuration }}-${{ fromJSON(steps.fetch-config.outputs.params).branch }}"
+          body: "Repacked IPA v${{ steps.package-version.outputs.current-version }} (${{ fromJSON(steps.fetch-config.outputs.params).configuration }})"
+          body_path: ./input/${{ fromJSON(steps.fetch-config.outputs.params).releasenote != '' && fromJSON(steps.fetch-config.outputs.params).releasenote != null ? fromJSON(steps.fetch-config.outputs.params).releasenote : 'releasenote.md' }}
+
+      - name: Update DB
+        run: |
+          curl -s -f -L -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/release?id=${{ steps.release.outputs.id }}

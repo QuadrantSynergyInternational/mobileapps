@@ -1,0 +1,119 @@
+name: Repack and Release Android
+on:
+  workflow_dispatch:
+    inputs:
+      projectid:
+        type: string
+        description: Project ID
+        required: true
+
+jobs:
+  repack:
+    name: Repack APK
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Workflow Scripts
+        uses: actions/checkout@v4
+
+      - name: Fetch Build Configuration
+        id: fetch-config
+        run: |
+          PARAMS=$(curl -s -f -L -G \
+            -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+            "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/buildparams?platform=android")
+          echo "params=$PARAMS" >> "$GITHUB_OUTPUT"
+
+      - name: Clone Source Repo
+        run: |
+          git clone --depth=1 --single-branch \
+            --branch=${{ fromJSON(steps.fetch-config.outputs.params).branch }} \
+            https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(steps.fetch-config.outputs.params).repo }} \
+            input
+
+      - name: Get App Version
+        id: package-version
+        working-directory: input
+        run: |
+          current_version=$(node -e "console.log(require('./package.json').version)")
+          echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
+
+      - name: Logging
+        run: |
+          curl -s -f -L -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          --data-urlencode "wf_id=${{ github.run_id }}" \
+          --data-urlencode "params=${{ steps.fetch-config.outputs.params }}" \
+          --data-urlencode "uniqueId=${{ fromJSON(steps.fetch-config.outputs.params).uniqueId }}" \
+          --data-urlencode "version=${{ steps.package-version.outputs.current-version }}" \
+          --data-urlencode "platform=android" \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/trigger-log
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4.4.0
+        if: ${{ fromJSON(steps.fetch-config.outputs.params).java != '' && fromJSON(steps.fetch-config.outputs.params).java != null }}
+        with:
+          java-version: ${{ fromJSON(steps.fetch-config.outputs.params).java }}
+          distribution: corretto
+
+      - name: Setup Node.js
+        if: ${{ fromJSON(steps.fetch-config.outputs.params).node != '' && fromJSON(steps.fetch-config.outputs.params).node != null }}
+        uses: actions/setup-node@v4.0.4
+        with:
+          node-version: ${{ fromJSON(steps.fetch-config.outputs.params).node }}
+          cache: 'yarn'
+          cache-dependency-path: input/yarn.lock
+
+      - name: Install Watchman
+        uses: ConorMacBride/install-package@v1
+        with:
+          brew: watchman
+
+      - name: Install Dependencies
+        working-directory: input
+        run: |
+          corepack enable
+          if [ -f "yarn.lock" ]; then
+            yarn install
+          elif [ -f "pnpm-lock.yaml" ]; then
+            pnpm install
+          else
+            npm install
+          fi
+
+      - name: Repack and Sign APK
+        env:
+          CI: "true"
+          WORK_DIR: ${{ github.workspace }}
+          SOURCE_DIR: ${{ github.workspace }}/input
+          BUNDLE_OUTPUT_DIR: ${{ github.workspace }}/bundle_output
+          RELEASE_DOWNLOAD_DIR: ${{ github.workspace }}/release_download
+          RELEASE_REPO: ${{ fromJSON(steps.fetch-config.outputs.params).releaseRepo }}
+          RELEASE_TAG: ${{ fromJSON(steps.fetch-config.outputs.params).releaseTag }}
+          APK_FILENAME: ${{ fromJSON(steps.fetch-config.outputs.params).apkFilename || '*.apk' }}
+          KEYSTORE_PATH: ${{ fromJSON(steps.fetch-config.outputs.params).keystorePath }}
+          KEYSTORE_PASSWORD: ${{ fromJSON(steps.fetch-config.outputs.params).keystorePassword }}
+          KEY_ALIAS: ${{ fromJSON(steps.fetch-config.outputs.params).keyAlias }}
+          KEY_PASSWORD: ${{ fromJSON(steps.fetch-config.outputs.params).keyPassword }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          APP_VERSION: ${{ steps.package-version.outputs.current-version }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ fromJSON(steps.fetch-config.outputs.params).sentryProject || '' }}
+        run: bash scripts/repack_android.sh
+
+      - name: Upload to Release
+        id: release
+        uses: muhamad-rizki/action-gh-release@v3.0.1
+        with:
+          repository: ${{ fromJSON(steps.fetch-config.outputs.params).releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: release_download/resigned-output.apk
+          tag_name: "v${{ steps.package-version.outputs.current-version }}-${{ fromJSON(steps.fetch-config.outputs.params).configuration }}-${{ fromJSON(steps.fetch-config.outputs.params).branch }}"
+          body: "Repacked APK v${{ steps.package-version.outputs.current-version }} (${{ fromJSON(steps.fetch-config.outputs.params).configuration }})"
+          body_path: ./input/${{ fromJSON(steps.fetch-config.outputs.params).releasenote != '' && fromJSON(steps.fetch-config.outputs.params).releasenote != null ? fromJSON(steps.fetch-config.outputs.params).releasenote : 'releasenote.md' }}
+
+      - name: Update DB
+        run: |
+          curl -s -f -L -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/release?id=${{ steps.release.outputs.id }}

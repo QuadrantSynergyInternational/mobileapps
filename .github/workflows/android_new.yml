@@ -1,0 +1,113 @@
+name: Build Android APK
+on:
+  workflow_dispatch:
+    inputs:
+      projectid:
+        type: string
+        description: Project ID
+        required: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Fetch Build Configuration
+        id: fetch-config
+        run: |
+          PARAMS=$(curl -s -f -L -G \
+            -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+            "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/buildparams?platform=android")
+          echo "params=$PARAMS" >> "$GITHUB_OUTPUT"
+
+      - name: Clone Repo
+        run: git clone --depth=1 --single-branch --branch=${{ fromJSON(steps.fetch-config.outputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(steps.fetch-config.outputs.params).repo }} input
+        
+      - name: Get Apps Version
+        id: package-version
+        working-directory: input
+        run: |
+          current_version=$(node -e "console.log(require('./package.json').version)")
+          echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
+
+      - name: Logging
+        run: |
+          curl -s -f -L -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          --data-urlencode "wf_id=${{ github.run_id }}" \
+          --data-urlencode "params=${{ steps.fetch-config.outputs.params }}" \
+          --data-urlencode "uniqueId=${{ fromJSON(steps.fetch-config.outputs.params).uniqueId }}" \
+          --data-urlencode "version=${{ steps.package-version.outputs.current-version }}" \
+          --data-urlencode "platform=android" \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/trigger-log
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4.4.0
+        if: ${{ fromJSON(steps.fetch-config.outputs.params).java != '' && fromJSON(steps.fetch-config.outputs.params).java != null }}
+        with:
+          java-version: ${{ fromJSON(steps.fetch-config.outputs.params).java }}
+          distribution: corretto
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Android NDK
+        if: ${{ fromJSON(steps.fetch-config.outputs.params).ndk != '' && fromJSON(steps.fetch-config.outputs.params).ndk != null }}
+        uses: nttld/setup-ndk@v1.5.0
+        with:
+          ndk-version: ${{ fromJSON(steps.fetch-config.outputs.params).ndk }}
+          add-to-path: true
+          link-to-sdk: true
+          local-cache: true
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4.0.4
+        if: ${{ fromJSON(steps.fetch-config.outputs.params).node != '' && fromJSON(steps.fetch-config.outputs.params).node != null }}
+        with:
+          node-version: ${{ fromJSON(steps.fetch-config.outputs.params).node }}
+          cache: 'yarn'
+          cache-dependency-path: input/yarn.lock
+
+      - name: Initialize watchman
+        uses: ConorMacBride/install-package@v1
+        with:
+          brew: watchman
+
+      - name: Yarn Install
+        working-directory: input
+        run: yarn install
+
+      - name: Gradle Build
+        working-directory: input/android
+        run: ./gradlew assemble${{ fromJSON(steps.fetch-config.outputs.params).flavor }}${{ fromJSON(steps.fetch-config.outputs.params).configuration }} ${{ fromJSON(steps.fetch-config.outputs.params).gradlecmd }}
+
+      - name: Upload to release
+        id: release
+        uses: muhamad-rizki/action-gh-release@v3.0.1
+        with:
+          repository: ${{ fromJSON(steps.fetch-config.outputs.params).releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: |
+            input/**/outputs/**/*.apk
+            input/**/outputs/**/*.aab
+          tag_name: "v${{ steps.package-version.outputs.current-version}}-${{ fromJSON(steps.fetch-config.outputs.params).configuration }}-${{ fromJSON(steps.fetch-config.outputs.params).branch }}"
+          body: "APK Release v${{ steps.package-version.outputs.current-version}} (${{ fromJSON(steps.fetch-config.outputs.params).configuration }})"
+          body_path: ./input/${{ fromJSON(steps.fetch-config.outputs.params).releasenote != '' && fromJSON(steps.fetch-config.outputs.params).releasenote != null ? fromJSON(steps.fetch-config.outputs.params).releasenote : 'releasenote.md' }}
+
+      - name: Update DB
+        run: |
+          curl -s -f -L -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/release?id=${{ steps.release.outputs.id }}
+
+      - name: Upload Source Maps
+        id: release-maps
+        uses: muhamad-rizki/action-gh-release@v3.0.1
+        with:
+          repository: ${{ fromJSON(steps.fetch-config.outputs.params).releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: |
+            ./input/android/**/mapping.txt
+            ./input/android/**/*.bundle.map
+            ./input/android/**/*.jsbundle.map
+            ./**/*.dSYM.zip
+          tag_name: "v${{ steps.package-version.outputs.current-version}}-${{ fromJSON(steps.fetch-config.outputs.params).configuration }}-${{ fromJSON(steps.fetch-config.outputs.params).branch }}"

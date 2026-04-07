@@ -1,0 +1,193 @@
+name: Build iOS IPA
+on:
+  workflow_dispatch:
+    inputs:
+      projectid:
+        type: string
+        description: Project ID
+        required: true
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Fetch Build Configuration
+        id: fetch-config
+        run: |
+          PARAMS=$(curl -s -f -L -G \
+            -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+            "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/buildparams?platform=ios")
+          echo "params=$PARAMS" >> "$GITHUB_OUTPUT"
+          
+          PROVISION_FILE=$(echo "$PARAMS" | jq -r 'if .provisionfile and .provisionfile != "" then .provisionfile else .branch end')
+          echo "provision_file=$PROVISION_FILE" >> "$GITHUB_OUTPUT"
+          
+          PROVISION_RES=$(curl -s -f -L -G \
+            -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+            "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/provision?name=${PROVISION_FILE}.p12&details=true")
+          echo "provision=$PROVISION_RES" >> "$GITHUB_OUTPUT"
+
+      - name: Clone Repo
+        run: git clone --depth=1 --single-branch --branch=${{ fromJSON(steps.fetch-config.outputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(steps.fetch-config.outputs.params).repo }} input
+      
+      - name: Clone Provision
+        run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
+
+      - name: Get Apps Version
+        id: package-version
+        working-directory: input
+        run: |
+          current_version=$(node -e "console.log(require('./package.json').version)")
+          echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
+
+      - name: Logging
+        run: |
+          curl -s -f -L -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          --data-urlencode "wf_id=${{ github.run_id }}" \
+          --data-urlencode "params=${{ steps.fetch-config.outputs.params }}" \
+          --data-urlencode "uniqueId=${{ fromJSON(steps.fetch-config.outputs.params).uniqueId }}" \
+          --data-urlencode "version=${{ steps.package-version.outputs.current-version }}" \
+          --data-urlencode "platform=ios" \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/trigger-log
+
+      - name: Validate P12
+        run: |
+          set -euo pipefail
+          P12_FILE="./provision/${{ github.event.inputs.projectid }}/${{ steps.fetch-config.outputs.provision_file }}.p12"
+          echo "🔧 Creating temporary keychain..."
+          security create-keychain -p "" temp.keychain
+          
+          echo "🔓 Unlocking keychain..."
+          security unlock-keychain -p "" temp.keychain
+          
+          echo "🔍 Validating P12 import..."
+          if security import "$P12_FILE" -k temp.keychain -P "${{ fromJSON(steps.fetch-config.outputs.provision).password || '' }}" \
+               -T /usr/bin/codesign \
+               -T /usr/bin/security \
+               -T /usr/bin/productbuild \
+               -T /usr/bin/productsign; then
+            echo "✅ Import successful"
+          else
+            echo "❌ Import failed" >&2
+            security delete-keychain temp.keychain
+            exit 1
+          fi
+          
+          echo "🧹 Cleaning up keychain..."
+          security delete-keychain temp.keychain
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        if: ${{ fromJSON(steps.fetch-config.outputs.params).ruby != '' && fromJSON(steps.fetch-config.outputs.params).ruby != null }}
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: ./input
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4.0.4
+        if: ${{ fromJSON(steps.fetch-config.outputs.params).node != '' && fromJSON(steps.fetch-config.outputs.params).node != null }}
+        with:
+          node-version: ${{ fromJSON(steps.fetch-config.outputs.params).node }}
+          cache: 'yarn'
+          cache-dependency-path: input/yarn.lock
+
+      - name: Install & Cache Watchman
+        uses: ConorMacBride/install-package@v1
+        with:
+          brew: watchman
+
+      - name: Yarn Install
+        working-directory: input
+        run: yarn install
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: input/ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('input/ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Pod Repo
+        run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git
+
+      - name: Detect New Architecture
+        id: detect-arch
+        working-directory: input
+        run: |
+          NEW_ARCH=$(grep -E "^newArchEnabled=true" android/gradle.properties || true)
+          if [ -n "$NEW_ARCH" ]; then
+            echo "enabled=true" >> $GITHUB_OUTPUT
+            echo "React Native New Architecture ENABLED"
+          else
+            echo "enabled=false" >> $GITHUB_OUTPUT
+            echo "React Native New Architecture DISABLED"
+          fi
+
+      - name: Pod install
+        working-directory: input/ios
+        run: |
+          if [ "${{ steps.detect-arch.outputs.enabled }}" = "true" ]; then
+            echo "⚙️ Enabling iOS New Architecture"
+            export RCT_NEW_ARCH_ENABLED=1
+          else
+            echo "⚙️ Using Legacy Architecture"
+          fi
+          pod install
+
+      - name: Download Export Plist
+        run: curl -s -f -L --output export.plist "https://appcenterq.vercel.app/ios-export?projectid=${{ github.event.inputs.projectid }}&branch=${{ fromJSON(steps.fetch-config.outputs.params).branch }}"
+
+      - name: Build IPA
+        uses: muhamad-rizki/ios-build-action@v1
+        with:
+          p12-path: ./provision/${{ github.event.inputs.projectid }}/${{ steps.fetch-config.outputs.provision_file }}.p12
+          mobileprovision-path: ./provision/${{ github.event.inputs.projectid }}/${{ steps.fetch-config.outputs.provision_file }}.mobileprovision
+          code-signing-identity: 'iPhone Distribution'
+          team-id: ${{ fromJSON(steps.fetch-config.outputs.params).teamid }}
+          certificate-password: ${{ fromJSON(steps.fetch-config.outputs.provision).password || '' }}
+          project-path: input/${{ fromJSON(steps.fetch-config.outputs.params).projectpath }}
+          workspace-path: input/${{ fromJSON(steps.fetch-config.outputs.params).projectworkspace }}
+          scheme: ${{ fromJSON(steps.fetch-config.outputs.params).scheme }}
+          configuration: ${{ fromJSON(steps.fetch-config.outputs.params).configuration }}
+          export-method: ${{ fromJSON(steps.fetch-config.outputs.params).exportmethod }}
+          output-path: output-${{ fromJSON(steps.fetch-config.outputs.params).configuration }}.ipa
+          xcode-path: ${{ fromJSON(steps.fetch-config.outputs.params).xcodepath || '' }}
+          export-options: |
+            ./export.plist
+            ./provision/${{ github.event.inputs.projectid }}/${{ steps.fetch-config.outputs.provision_file }}.plist
+
+      - name: Upload to release
+        id: release
+        uses: muhamad-rizki/action-gh-release@v3.0.1
+        with:
+          repository: ${{ fromJSON(steps.fetch-config.outputs.params).releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: |
+            output-${{ fromJSON(steps.fetch-config.outputs.params).configuration }}.ipa
+            manifest.plist
+            AppStoreInfo.plist
+          tag_name: "v${{ steps.package-version.outputs.current-version}}-${{ fromJSON(steps.fetch-config.outputs.params).configuration }}-${{ fromJSON(steps.fetch-config.outputs.params).branch }}"
+          body: "IPA Release v${{ steps.package-version.outputs.current-version}} (${{ fromJSON(steps.fetch-config.outputs.params).configuration }})"
+          body_path: ./input/${{ fromJSON(steps.fetch-config.outputs.params).releasenote != '' && fromJSON(steps.fetch-config.outputs.params).releasenote != null ? fromJSON(steps.fetch-config.outputs.params).releasenote : 'releasenote.md' }}
+
+      - name: Update DB
+        run: |
+          curl -s -f -L -X POST \
+          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/release?id=${{ steps.release.outputs.id }}
+
+      - name: Upload Source Maps
+        id: release-maps
+        uses: muhamad-rizki/action-gh-release@v3.0.1
+        with:
+          repository: ${{ fromJSON(steps.fetch-config.outputs.params).releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: |
+            ./input/android/**/mapping.txt
+            ./input/android/**/*.bundle.map
+            ./input/android/**/*.jsbundle.map
+            ./**/*.dSYM.zip
+          tag_name: "v${{ steps.package-version.outputs.current-version}}-${{ fromJSON(steps.fetch-config.outputs.params).configuration }}-${{ fromJSON(steps.fetch-config.outputs.params).branch }}"
