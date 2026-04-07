@@ -87,10 +87,10 @@ runs:
       working-directory: input
       run: |
         corepack enable
-        if [ -f "pnpm-lock.yaml" ]; then
-          pnpm install
-        elif [ -f "package-lock.json" ]; then
-          npm ci
-        else
+        if [ -f "yarn.lock" ]; then
           yarn install
+        elif [ -f "pnpm-lock.yaml" ]; then
+          pnpm install
+        else
+          npm install
         fi
