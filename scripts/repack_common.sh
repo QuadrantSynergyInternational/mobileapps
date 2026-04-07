@@ -60,10 +60,26 @@ common_clone_source() {
 }
 
 # ── Load sentry.properties (optional) ───────────────────────────────────────
-# Reads from $SOURCE_DIR/sentry.properties. Env vars take precedence.
+# Reads from platform-specific or root sentry.properties. Env vars take precedence.
 common_load_sentry() {
-  local props_file="$SOURCE_DIR/sentry.properties"
-  if [[ -f "$props_file" ]]; then
+  local platform="${1:-}"
+  local props_file=""
+
+  # Define potential locations in order of precedence
+  local search_paths=(
+    "$SOURCE_DIR/$platform/sentry.properties"
+    "$SOURCE_DIR/sentry.properties"
+    "$WORK_DIR/sentry.properties"
+  )
+
+  for path in "${search_paths[@]}"; do
+    if [[ -f "$path" ]]; then
+      props_file="$path"
+      break
+    fi
+  done
+
+  if [[ -n "$props_file" && -f "$props_file" ]]; then
     echo ""
     echo "📋 Loading Sentry config from $props_file..."
     while IFS='=' read -r key value; do
@@ -101,7 +117,17 @@ common_bundle() {
   echo "🏗️  Bundling React Native ($platform) — v$APP_VERSION..."
   (
     cd "$SOURCE_DIR"
-    npx react-native bundle \
+    
+    # Dynamically select bundler depending on Expo presence
+    if node -e "process.exit(require('./package.json').dependencies.expo ? 0 : 1)" 2>/dev/null; then
+      echo "🚀 Detected Expo environment. Using 'expo export:embed' to align native assets..."
+      BUNDLER_CMD="npx expo export:embed"
+    else
+      echo "⚛️  Detected Bare React Native environment. Using standard 'react-native bundle'..."
+      BUNDLER_CMD="npx react-native bundle"
+    fi
+    
+    $BUNDLER_CMD \
       --platform "$platform" \
       --dev false \
       --entry-file "$entry_file" \
@@ -109,10 +135,19 @@ common_bundle() {
       --sourcemap-output "${bundle_file}.map" \
       --assets-dest "$BUNDLE_OUTPUT_DIR"
       
+    # ── EXPO-UPDATES MANIFEST GENERATION ─────────────────────────────────────
+    EXPO_UPDATES_SCRIPT="$SOURCE_DIR/node_modules/expo-updates/utils/build/createUpdatesResources.js"
+    if [[ -f "$EXPO_UPDATES_SCRIPT" ]]; then
+      echo "📦 Generating Expo Updates app.manifest for $platform..."
+      node "$EXPO_UPDATES_SCRIPT" "$platform" "$SOURCE_DIR" "$BUNDLE_OUTPUT_DIR" all "$entry_file" || true
+    fi
     echo "⚙️  Detecting Hermes compiler configuration..."
     
     # 1. Determine default based on RN Version (Hermes is default on >= 0.70)
-    RN_VERSION=$(node -p "require('$SOURCE_DIR/package.json').dependencies['react-native']" 2>/dev/null | tr -d '^~' | cut -d'.' -f2 || echo "0")
+    RN_VERSION=$(node -p "require('$SOURCE_DIR/package.json').dependencies['react-native']" 2>/dev/null | tr -d '^~' | cut -d'.' -f2 || true)
+    if ! [[ "$RN_VERSION" =~ ^[0-9]+$ ]]; then
+      RN_VERSION=0
+    fi
     if [[ "$RN_VERSION" -ge 70 ]]; then
       PROJECT_USES_HERMES="true"
     else
@@ -150,14 +185,14 @@ common_bundle() {
       HERMESC_PATH=""
       
       if [[ "$OS_NAME" == "darwin" ]]; then
-        HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/react-native/sdks/hermesc/osx-bin/hermesc" -type f | head -n 1)
+        HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/react-native/sdks/hermesc/osx-bin/hermesc" -type f 2>/dev/null | head -n 1 || true)
         if [[ -z "$HERMESC_PATH" ]]; then
-          HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/@react-native/hermes-cli/osx-bin/hermesc" -type f | head -n 1)
+          HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/@react-native/hermes-cli/osx-bin/hermesc" -type f 2>/dev/null | head -n 1 || true)
         fi
       elif [[ "$OS_NAME" == "linux" ]]; then
-        HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/react-native/sdks/hermesc/linux64-bin/hermesc" -type f | head -n 1)
+        HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/react-native/sdks/hermesc/linux64-bin/hermesc" -type f 2>/dev/null | head -n 1 || true)
         if [[ -z "$HERMESC_PATH" ]]; then
-          HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/@react-native/hermes-cli/linux64-bin/hermesc" -type f | head -n 1)
+          HERMESC_PATH=$(find "$SOURCE_DIR/node_modules" -path "*/@react-native/hermes-cli/linux64-bin/hermesc" -type f 2>/dev/null | head -n 1 || true)
         fi
       fi
 
@@ -167,17 +202,17 @@ common_bundle() {
       fi
 
       # 3. Extract custom Hermes Flags if defined in build configuration
-      HERMES_FLAGS="-O -output-source-map"
+      HERMES_FLAGS="-O -output-source-map -w -max-diagnostic-width=80"
       if [[ "$platform" == "android" ]]; then
         # Look for uncommented hermesFlags = ["-O", "-output-source-map"]
-        EXTRACTED_FLAGS=$(grep -i 'hermesFlags *=' "$SOURCE_DIR/android/app/build.gradle" 2>/dev/null | grep -v '^ *//' | sed 's/.*\[\(.*\)\].*/\1/' | tr -d '"' | tr -d "'" | tr ',' ' ')
+        EXTRACTED_FLAGS=$(grep -i 'hermesFlags *=' "$SOURCE_DIR/android/app/build.gradle" 2>/dev/null | grep -v '^ *//' | sed 's/.*\[\(.*\)\].*/\1/' | tr -d '"' | tr -d "'" | tr ',' ' ' || true)
         if [[ -n "$EXTRACTED_FLAGS" ]]; then
           HERMES_FLAGS="$EXTRACTED_FLAGS"
           echo "ℹ️  Found Custom Android Hermes Flags: $HERMES_FLAGS"
         fi
       elif [[ "$platform" == "ios" ]]; then
         # Look for uncommented :hermes_flags => "-O -output-source-map"
-        EXTRACTED_FLAGS=$(grep -i ':hermes_flags *=>' "$SOURCE_DIR/ios/Podfile" 2>/dev/null | grep -v '^ *#' | sed -E "s/.*:hermes_flags *=> *['\"]([^'\"]+)['\"].*/\1/")
+        EXTRACTED_FLAGS=$(grep -i ':hermes_flags *=>' "$SOURCE_DIR/ios/Podfile" 2>/dev/null | grep -v '^ *#' | sed -E "s/.*:hermes_flags *=> *['\"]([^'\"]+)['\"].*/\1/" || true)
         if [[ -n "$EXTRACTED_FLAGS" ]]; then
           HERMES_FLAGS="$EXTRACTED_FLAGS"
           echo "ℹ️  Found Custom iOS Hermes Flags: $HERMES_FLAGS"

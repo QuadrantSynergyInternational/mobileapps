@@ -73,7 +73,24 @@ runs:
       with:
         brew: watchman
 
-    - name: Yarn Install
+    - name: Cache Node Modules
+      uses: actions/cache@v4
+      with:
+        path: input/node_modules
+        key: ${{ runner.os }}-node-modules-${{ fromJSON(inputs.params).projectid }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-node-modules-${{ fromJSON(inputs.params).projectid }}-
+          ${{ runner.os }}-node-modules-
+
+    - name: Install Dependencies
       shell: bash
       working-directory: input
-      run: yarn install
+      run: |
+        corepack enable
+        if [ -f "pnpm-lock.yaml" ]; then
+          pnpm install
+        elif [ -f "package-lock.json" ]; then
+          npm ci
+        else
+          yarn install
+        fi

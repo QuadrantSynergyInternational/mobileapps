@@ -69,7 +69,7 @@ echo "⬇️  Download dir: $RELEASE_DOWNLOAD_DIR"
 common_clone_source
 
 # ── Load sentry.properties + bundle ─────────────────────────────────────────
-common_load_sentry
+common_load_sentry android
 common_bundle android
 
 # ── Download release APK ─────────────────────────────────────────────────────
@@ -107,81 +107,48 @@ echo ""
 echo "💻 Repacking APK (preserving original compression per entry)..."
 mkdir -p "$(dirname "$DOWNLOADED_APK")"
 
-python3 - \
-  "$DOWNLOADED_APK" \
-  "$RELEASE_DOWNLOAD_DIR/repacked-unsigned.apk" \
-  "$BUNDLE_OUTPUT_DIR/index.android.bundle" \
-  "$BUNDLE_OUTPUT_DIR" \
-<<'PYEOF'
-import sys, os, zipfile
+echo "📋 Native Android Resource Build: Re-compiling APK with apktool..."
+APKTOOL_JAR="$(dirname "$0")/apktool.jar"
+if [[ ! -f "$APKTOOL_JAR" ]]; then
+  echo "   - Fetching latest Apktool release..."
+  LATEST_APKTOOL_URL=$(curl -sL "https://api.github.com/repos/iBotPeaches/Apktool/releases/latest" | grep "browser_download_url" | grep "\.jar" | head -n 1 | cut -d '"' -f 4)
+  if [[ -z "$LATEST_APKTOOL_URL" ]]; then
+    echo "❌ Failed to fetch latest Apktool URL."
+    exit 1
+  fi
+  wget -qO "$APKTOOL_JAR" "$LATEST_APKTOOL_URL"
+  echo "   - Downloaded seamlessly to $APKTOOL_JAR"
+fi
 
-src_apk, dst_apk, bundle_path, rn_out = sys.argv[1:5]
+DECODED_DIR="$RELEASE_DOWNLOAD_DIR/decoded_apk"
+echo "   - Unpacking original APK resources.arsc..."
+java -jar "$APKTOOL_JAR" d -s -f -o "$DECODED_DIR" "$DOWNLOADED_APK"
 
-# Build map of RN bundle outputs that should replace/add entries in the APK:
-#   assets/index.android.bundle  -> new JS bundle
-#   assets/<anything>            -> from rn_out/assets/
-#   res/<anything>               -> from rn_out/res/  (drawable updates)
-rn_files = {}
+echo "🔄 Bumping Android version string to $APP_VERSION in apktool metadata..."
+sed -i.bak -E "s/versionName: .*/versionName: $APP_VERSION/" "$DECODED_DIR/apktool.yml"
+rm -f "$DECODED_DIR/apktool.yml.bak"
 
-def collect_res(base_dir):
-    if not os.path.isdir(base_dir):
-        return
-    # In Android, RN outputs assets (drawable-*, raw, etc) directly into the --assets-dest dir.
-    # In the APK, they belong strictly under the 'res/' prefix.
-    for item in os.listdir(base_dir):
-        item_dir = os.path.join(base_dir, item)
-        if os.path.isdir(item_dir):
-            for root, _, files in os.walk(item_dir):
-                for f in files:
-                    full = os.path.join(root, f)
-                    # Keep paths like `drawable-mdpi/image.png`
-                    rel_to_base = os.path.relpath(full, base_dir).replace(os.sep, '/')
-                    # Add res/ prefix for the APK structure exactly
-                    rn_files['res/' + rel_to_base] = full
+echo "   - Injecting regenerated bundles & native assets..."
+# Inject main JS bundle natively
+cp "$BUNDLE_OUTPUT_DIR/index.android.bundle" "$DECODED_DIR/assets/index.android.bundle"
 
-collect_res(rn_out)
-print(f'  🔍 Collected {len(rn_files)} RN generated files/assets for Android injection.')
-# The main bundle always wins regardless of --assets-dest output
-rn_files['assets/index.android.bundle'] = bundle_path
+# Inject Expo Updates Manifest unmodified for native resourcesFolder parsing
+if [[ -f "$BUNDLE_OUTPUT_DIR/app.manifest" ]]; then
+  cp "$BUNDLE_OUTPUT_DIR/app.manifest" "$DECODED_DIR/assets/app.manifest"
+fi
 
-updated, added, skipped = [], [], []
+# Overlay React Native asset directories (drawable-*, raw, etc.) precisely onto native /res
+if [ -d "$BUNDLE_OUTPUT_DIR/drawable-mdpi" ] || [ -d "$BUNDLE_OUTPUT_DIR/raw" ]; then
+  # Dynamically copy natively scaled folders created by RN straight into standard Android resource hierarchy
+  cp -r "$BUNDLE_OUTPUT_DIR/drawable-"* "$DECODED_DIR/res/" 2>/dev/null || true
+  cp -r "$BUNDLE_OUTPUT_DIR/raw" "$DECODED_DIR/res/" 2>/dev/null || true
+fi
 
-with zipfile.ZipFile(src_apk, 'r') as src, \
-     zipfile.ZipFile(dst_apk, 'w', compression=zipfile.ZIP_DEFLATED, allowZip64=True) as dst:
+echo "   - Recompiling modified APK + resources.arsc via aapt2 natively (This may take a minute)..."
+java -jar "$APKTOOL_JAR" b "$DECODED_DIR" -o "$RELEASE_DOWNLOAD_DIR/repacked-unsigned.apk"
 
-    for info in src.infolist():
-        # Drop original signature — apksigner will re-sign
-        if info.filename.startswith('META-INF/'):
-            skipped.append(info.filename)
-            continue
-
-        if info.filename in rn_files:
-            # Replace entry — read new data from disk
-            with open(rn_files[info.filename], 'rb') as fh:
-                data = fh.read()
-            # Preserve the original compression type for this slot
-            new_info = zipfile.ZipInfo(info.filename, info.date_time)
-            new_info.compress_type = info.compress_type
-            new_info.external_attr  = info.external_attr
-            dst.writestr(new_info, data)
-            updated.append(info.filename)
-            rn_files.pop(info.filename)
-        else:
-            # Copy verbatim — preserves compress_type (STORED vs DEFLATED)
-            dst.writestr(info, src.read(info.filename))
-
-    # Any RN output not already present in the original APK → add as DEFLATED
-    for rel, path in rn_files.items():
-        with open(path, 'rb') as fh:
-            dst.write(path, rel, compress_type=zipfile.ZIP_DEFLATED)
-        added.append(rel)
-
-print(f'  ✅ Updated {len(updated)} existing APK entries.')
-if added:
-    print(f'  ➕ Added   {len(added)} new entries (assets/bundles).')
-if skipped:
-    print(f'  🗑️  Skipped {len(skipped)} META-INF entries (clearing old signature).')
-PYEOF
+# Cleanup unpacked heavy payload
+rm -rf "$DECODED_DIR"
 
 # ── Align APK (4-byte alignment required; 4KB for page-aligned .so) ──────────
 ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
