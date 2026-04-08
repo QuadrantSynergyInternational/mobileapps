@@ -111,11 +111,21 @@ echo "📋 Native Android Resource Build: Re-compiling APK with apktool..."
 APKTOOL_JAR="$(dirname "$0")/apktool.jar"
 if [[ ! -f "$APKTOOL_JAR" ]]; then
   echo "   - Fetching latest Apktool release..."
-  LATEST_APKTOOL_URL=$(curl -sL "https://api.github.com/repos/iBotPeaches/Apktool/releases/latest" | grep "browser_download_url" | grep "\.jar" | head -n 1 | cut -d '"' -f 4)
+  # Try gh CLI first (pre-authenticated in CI)
+  LATEST_APKTOOL_URL=$(GH_TOKEN="$GH_TOKEN" gh release view -R iBotPeaches/Apktool --json assets -q '.assets[] | select(.name | endswith(".jar")) | .url' | head -n 1 || true)
+
+  # Fallback to curl with token if gh fails or returns empty
   if [[ -z "$LATEST_APKTOOL_URL" ]]; then
-    echo "❌ Failed to fetch latest Apktool URL."
+    LATEST_APKTOOL_URL=$(curl -sL -H "Authorization: token $GH_TOKEN" "https://api.github.com/repos/iBotPeaches/Apktool/releases/latest" | \
+      grep "browser_download_url" | grep "\.jar" | head -n 1 | cut -d '"' -f 4 || true)
+  fi
+
+  if [[ -z "$LATEST_APKTOOL_URL" ]]; then
+    echo "❌ Failed to fetch latest Apktool URL (likely GitHub API rate limit)."
+    echo "   Ensure GH_TOKEN is valid and has sufficient permissions."
     exit 1
   fi
+
   wget -qO "$APKTOOL_JAR" "$LATEST_APKTOOL_URL"
   echo "   - Downloaded seamlessly to $APKTOOL_JAR"
 fi
