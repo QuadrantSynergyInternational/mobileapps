@@ -111,9 +111,7 @@ jobs:
           else
             echo "⚙️ Using Legacy Architecture"
           fi
-          # pod install
-          pod repo update
-          pod update
+          pod install
       - name: Download Export Plist
         run: curl --fail-with-body --output export.plist "https://appcenterq.vercel.app/ios-export?projectid=${{ fromJSON(github.event.inputs.params).projectid }}&branch=${{ fromJSON(github.event.inputs.params).branch }}"
       - name: Build IPA
