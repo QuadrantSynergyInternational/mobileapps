@@ -138,7 +138,7 @@ java -jar "$APKTOOL_JAR" d -s -f -o "$DECODED_DIR" "$DOWNLOADED_APK"
 echo "🩹 Patching private resource references in decompiled XMLs..."
 # Use @*android instead of @android to bypass visibility checks for private resources
 # Note: Using -i.bak for portability between macOS and Linux sed
-find "$DECODED_DIR/res" -type f -name "*.xml" -exec sed -i.bak -E 's/([@?])android:/\1*android:/g' {} +
+find "$DECODED_DIR/res" -type f -name "*.xml" -exec sed -i.bak -E 's/([@?])android:style\/([^"<>]*Holo[^"<>]*)/\1*android:style\/\2/g' {} +
 find "$DECODED_DIR/res" -type f -name "*.xml.bak" -delete
 
 echo "🔄 Bumping Android version string to $APP_VERSION in apktool metadata..."
