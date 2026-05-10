@@ -134,6 +134,13 @@ DECODED_DIR="$RELEASE_DOWNLOAD_DIR/decoded_apk"
 echo "   - Unpacking original APK resources.arsc..."
 java -jar "$APKTOOL_JAR" d -s -f -o "$DECODED_DIR" "$DOWNLOADED_APK"
 
+# Patch private resource references that break aapt2
+echo "🩹 Patching private resource references in decompiled XMLs..."
+# Use @*android instead of @android to bypass visibility checks for private resources
+# Note: Using -i.bak for portability between macOS and Linux sed
+find "$DECODED_DIR/res" -type f -name "*.xml" -exec sed -i.bak -E 's/([@?])android:/\1*android:/g' {} +
+find "$DECODED_DIR/res" -type f -name "*.xml.bak" -delete
+
 echo "🔄 Bumping Android version string to $APP_VERSION in apktool metadata..."
 sed -i.bak -E "s/versionName: .*/versionName: $APP_VERSION/" "$DECODED_DIR/apktool.yml"
 rm -f "$DECODED_DIR/apktool.yml.bak"
