@@ -6,6 +6,10 @@ on:
         type: string
         description: Project ID
         required: true
+      branch:
+        type: string
+        description: Branch
+        required: false
 jobs:
   repack:
     name: Repack APK
@@ -19,7 +23,7 @@ jobs:
         run: |
           PARAMS=$(curl -s -f -L -G \
             -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-            "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/buildparams?platform=android")
+            "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/buildparams?platform=android&branch=${{ github.event.inputs.branch }}")
           echo "params=$PARAMS" >> "$GITHUB_OUTPUT"
 
       - name: Clone Source Repo

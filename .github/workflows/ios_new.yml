@@ -6,6 +6,10 @@ on:
         type: string
         description: Project ID
         required: true
+      branch:
+        type: string
+        description: Branch
+        required: false
 jobs:
   build:
     runs-on: macos-14
@@ -15,7 +19,7 @@ jobs:
         run: |
           PARAMS=$(curl -s -f -L -G \
             -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-            "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/buildparams?platform=ios")
+            "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/buildparams?platform=ios&branch=${{ github.event.inputs.branch }}")
           echo "params=$PARAMS" >> "$GITHUB_OUTPUT"
           
           PROVISION_FILE=$(echo "$PARAMS" | jq -r 'if .provisionfile and .provisionfile != "" then .provisionfile else .branch end')
