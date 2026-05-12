@@ -56,6 +56,8 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ fromJSON(github.event.inputs.params).sentryProject || '' }}
+          SENTRY_RELEASE: ${{ fromJSON(github.event.inputs.params).sentryRelease || steps.setup.outputs.current-version }}
+          SENTRY_DIST: ${{ fromJSON(github.event.inputs.params).sentryDist || fromJSON(github.event.inputs.params).configuration || '' }}
         run: bash scripts/repack_android.sh
 
       - name: Upload to Release
@@ -121,6 +123,8 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ fromJSON(github.event.inputs.params).sentryProject || '' }}
+          SENTRY_RELEASE: ${{ fromJSON(github.event.inputs.params).sentryRelease || steps.setup.outputs.current-version }}
+          SENTRY_DIST: ${{ fromJSON(github.event.inputs.params).sentryDist || fromJSON(github.event.inputs.params).configuration || '' }}
         run: bash scripts/repack_ios.sh
 
       - name: Upload to Release

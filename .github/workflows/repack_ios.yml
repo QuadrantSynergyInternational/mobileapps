@@ -25,10 +25,10 @@ jobs:
             -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
             "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/buildparams?platform=ios&branch=${{ github.event.inputs.branch }}")
           echo "params=$PARAMS" >> "$GITHUB_OUTPUT"
-          
+
           PROVISION_FILE=$(echo "$PARAMS" | jq -r 'if .provisionfile and .provisionfile != "" then .provisionfile else .branch end')
           echo "provision_file=$PROVISION_FILE" >> "$GITHUB_OUTPUT"
-          
+
           PROVISION_RES=$(curl -s -f -L -G \
             -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
             "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/provision?name=${PROVISION_FILE}.p12&details=true")
@@ -70,7 +70,7 @@ jobs:
         uses: actions/setup-node@v4.0.4
         with:
           node-version: ${{ fromJSON(steps.fetch-config.outputs.params).node }}
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: input/yarn.lock
 
       - name: Install Watchman
@@ -109,6 +109,8 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ fromJSON(steps.fetch-config.outputs.params).sentryProject || '' }}
+          SENTRY_RELEASE: ${{ fromJSON(steps.fetch-config.outputs.params).sentryRelease || steps.package-version.outputs.current-version }}
+          SENTRY_DIST: ${{ fromJSON(steps.fetch-config.outputs.params).sentryDist || fromJSON(steps.fetch-config.outputs.params).configuration || '' }}
         run: bash scripts/repack_ios.sh
 
       - name: Upload to Release
