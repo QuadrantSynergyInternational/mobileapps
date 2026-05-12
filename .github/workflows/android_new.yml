@@ -13,6 +13,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      SENTRY_ALLOW_FAILURE: true
     steps:
       - name: Fetch Build Configuration
         id: fetch-config
