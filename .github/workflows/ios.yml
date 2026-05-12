@@ -38,10 +38,10 @@ jobs:
           P12_FILE="./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.p12"
           echo "🔧 Creating temporary keychain..."
           security create-keychain -p "" temp.keychain
-          
+
           echo "🔓 Unlocking keychain..."
           security unlock-keychain -p "" temp.keychain
-          
+
           echo "🔍 Validating P12 import..."
           if security import "$P12_FILE" -k temp.keychain -P "${{ fromJSON(github.event.inputs.params).p12pass || '' }}" \
                -T /usr/bin/codesign \
@@ -54,14 +54,14 @@ jobs:
             security delete-keychain temp.keychain
             exit 1
           fi
-          
+
           echo "🧹 Cleaning up keychain..."
           security delete-keychain temp.keychain
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         if: ${{ fromJSON(github.event.inputs.params).ruby != '' }}
         with:
-          ruby-version: '3.3'
+          ruby-version: "3.3"
           bundler-cache: true
           working-directory: ./input
       - name: Setup Node.js environment
@@ -69,27 +69,33 @@ jobs:
         if: ${{ fromJSON(github.event.inputs.params).node != '' }}
         with:
           node-version: ${{ fromJSON(github.event.inputs.params).node }}
+      - name: Cache Node Modules
+        uses: actions/cache@v4
+        with:
+          path: input/node_modules
+          key: ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-
       - name: Install & Cache Watchman
         uses: ConorMacBride/install-package@v1
         with:
           brew: watchman
-      # - name: Cache node modules
-      #   uses: actions/cache@v2
-      #   env:
-      #     cache-name: cache-${{ fromJSON(github.event.inputs.params).projectid }}
-      #   with:
-      #     path: |
-      #       - ./input/node_modules
-      #       - ./input/yarn.lock
-      #       - ./input/ios/Pods
-      #       - ./input/ios/Podfile.lock
-      #     key: ${{ secrets.APPCENTER_SECRET }}
-      #     restore-keys: ${{ secrets.APPCENTER_SECRET }}
       - name: Yarn Install
         working-directory: input
-        run: yarn install
+        run: |
+          corepack enable
+          yarn install
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            input/ios/Pods
+            ~/Library/Caches/CocoaPods
+          key: ${{ runner.os }}-pods-${{ fromJSON(github.event.inputs.params).projectid }}-${{ hashFiles('input/ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-${{ fromJSON(github.event.inputs.params).projectid }}-
       - name: Pod Repo
-        run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git
+        run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git || pod repo update QuadrantSpecs
       # - name: Clean Podfile.lock
       #   run: rm -rf ./input/ios/Podfile.lock
       - name: Detect New Architecture
@@ -118,7 +124,7 @@ jobs:
           else
             echo "⚙️ Using Legacy Architecture"
           fi
-          pod install
+          pod install --repo-update
           # pod repo update
           # pod update
       - name: Download Export Plist
@@ -128,7 +134,7 @@ jobs:
         with:
           p12-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.p12
           mobileprovision-path: ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.mobileprovision
-          code-signing-identity: 'iPhone Distribution'
+          code-signing-identity: "iPhone Distribution"
           team-id: ${{ fromJSON(github.event.inputs.params).teamid }}
           certificate-password: ${{ fromJSON(github.event.inputs.params).p12pass || '' }}
           project-path: input/${{ fromJSON(github.event.inputs.params).projectpath }}

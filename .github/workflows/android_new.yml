@@ -12,7 +12,7 @@ on:
         required: false
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Fetch Build Configuration
         id: fetch-config
@@ -24,7 +24,7 @@ jobs:
 
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(steps.fetch-config.outputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(steps.fetch-config.outputs.params).repo }} input
-        
+
       - name: Get Apps Version
         id: package-version
         working-directory: input
@@ -50,8 +50,21 @@ jobs:
           java-version: ${{ fromJSON(steps.fetch-config.outputs.params).java }}
           distribution: corretto
 
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            input/android/.gradle
+          key: ${{ runner.os }}-gradle-${{ github.event.inputs.projectid }}-${{ hashFiles('input/android/**/*.gradle*', 'input/android/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-${{ github.event.inputs.projectid }}-
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-disabled: true
 
       - name: Setup Android NDK
         if: ${{ fromJSON(steps.fetch-config.outputs.params).ndk != '' && fromJSON(steps.fetch-config.outputs.params).ndk != null }}
@@ -67,17 +80,26 @@ jobs:
         if: ${{ fromJSON(steps.fetch-config.outputs.params).node != '' && fromJSON(steps.fetch-config.outputs.params).node != null }}
         with:
           node-version: ${{ fromJSON(steps.fetch-config.outputs.params).node }}
-          cache: 'yarn'
-          cache-dependency-path: input/yarn.lock
 
-      - name: Initialize watchman
-        uses: ConorMacBride/install-package@v1
+      - name: Cache Node Modules
+        uses: actions/cache@v4
         with:
-          brew: watchman
+          path: input/node_modules
+          key: ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-
+
+      - name: Increase File Watcher Limit
+        run: |
+          echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
+          echo fs.inotify.max_user_instances=1024 | sudo tee -a /etc/sysctl.conf
+          sudo sysctl -p
 
       - name: Yarn Install
         working-directory: input
-        run: yarn install
+        run: |
+          corepack enable
+          yarn install
 
       - name: Gradle Build
         working-directory: input/android

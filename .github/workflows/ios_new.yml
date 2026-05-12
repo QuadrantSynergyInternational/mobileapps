@@ -21,10 +21,10 @@ jobs:
             -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
             "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/buildparams?platform=ios&branch=${{ github.event.inputs.branch }}")
           echo "params=$PARAMS" >> "$GITHUB_OUTPUT"
-          
+
           PROVISION_FILE=$(echo "$PARAMS" | jq -r 'if .provisionfile and .provisionfile != "" then .provisionfile else .branch end')
           echo "provision_file=$PROVISION_FILE" >> "$GITHUB_OUTPUT"
-          
+
           PROVISION_RES=$(curl -s -f -L -G \
             -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
             "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/provision?name=${PROVISION_FILE}.p12&details=true")
@@ -32,7 +32,7 @@ jobs:
 
       - name: Clone Repo
         run: git clone --depth=1 --single-branch --branch=${{ fromJSON(steps.fetch-config.outputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(steps.fetch-config.outputs.params).repo }} input
-      
+
       - name: Clone Provision
         run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
 
@@ -60,10 +60,10 @@ jobs:
           P12_FILE="./provision/${{ github.event.inputs.projectid }}/${{ steps.fetch-config.outputs.provision_file }}.p12"
           echo "🔧 Creating temporary keychain..."
           security create-keychain -p "" temp.keychain
-          
+
           echo "🔓 Unlocking keychain..."
           security unlock-keychain -p "" temp.keychain
-          
+
           echo "🔍 Validating P12 import..."
           if security import "$P12_FILE" -k temp.keychain -P "${{ fromJSON(steps.fetch-config.outputs.provision).password || '' }}" \
                -T /usr/bin/codesign \
@@ -76,7 +76,7 @@ jobs:
             security delete-keychain temp.keychain
             exit 1
           fi
-          
+
           echo "🧹 Cleaning up keychain..."
           security delete-keychain temp.keychain
 
@@ -84,7 +84,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         if: ${{ fromJSON(steps.fetch-config.outputs.params).ruby != '' && fromJSON(steps.fetch-config.outputs.params).ruby != null }}
         with:
-          ruby-version: '3.3'
+          ruby-version: "3.3"
           bundler-cache: true
           working-directory: ./input
 
@@ -93,8 +93,14 @@ jobs:
         if: ${{ fromJSON(steps.fetch-config.outputs.params).node != '' && fromJSON(steps.fetch-config.outputs.params).node != null }}
         with:
           node-version: ${{ fromJSON(steps.fetch-config.outputs.params).node }}
-          cache: 'yarn'
-          cache-dependency-path: input/yarn.lock
+
+      - name: Cache Node Modules
+        uses: actions/cache@v4
+        with:
+          path: input/node_modules
+          key: ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-
 
       - name: Install & Cache Watchman
         uses: ConorMacBride/install-package@v1
@@ -103,18 +109,22 @@ jobs:
 
       - name: Yarn Install
         working-directory: input
-        run: yarn install
+        run: |
+          corepack enable
+          yarn install
 
       - name: Cache CocoaPods
         uses: actions/cache@v4
         with:
-          path: input/ios/Pods
-          key: ${{ runner.os }}-pods-${{ hashFiles('input/ios/Podfile.lock') }}
+          path: |
+            input/ios/Pods
+            ~/Library/Caches/CocoaPods
+          key: ${{ runner.os }}-pods-${{ github.event.inputs.projectid }}-${{ hashFiles('input/ios/Podfile.lock') }}
           restore-keys: |
-            ${{ runner.os }}-pods-
+            ${{ runner.os }}-pods-${{ github.event.inputs.projectid }}-
 
       - name: Pod Repo
-        run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git
+        run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git || pod repo update QuadrantSpecs
 
       - name: Detect New Architecture
         id: detect-arch
@@ -138,7 +148,7 @@ jobs:
           else
             echo "⚙️ Using Legacy Architecture"
           fi
-          pod install
+          pod install --repo-update
 
       - name: Download Export Plist
         run: curl -s -f -L --output export.plist "https://appcenterq.vercel.app/ios-export?projectid=${{ github.event.inputs.projectid }}&branch=${{ fromJSON(steps.fetch-config.outputs.params).branch }}"
@@ -148,7 +158,7 @@ jobs:
         with:
           p12-path: ./provision/${{ github.event.inputs.projectid }}/${{ steps.fetch-config.outputs.provision_file }}.p12
           mobileprovision-path: ./provision/${{ github.event.inputs.projectid }}/${{ steps.fetch-config.outputs.provision_file }}.mobileprovision
-          code-signing-identity: 'iPhone Distribution'
+          code-signing-identity: "iPhone Distribution"
           team-id: ${{ fromJSON(steps.fetch-config.outputs.params).teamid }}
           certificate-password: ${{ fromJSON(steps.fetch-config.outputs.provision).password || '' }}
           project-path: input/${{ fromJSON(steps.fetch-config.outputs.params).projectpath }}

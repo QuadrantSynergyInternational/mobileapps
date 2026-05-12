@@ -69,6 +69,7 @@ runs:
         node-version: ${{ fromJSON(inputs.params).node }}
 
     - name: Install Watchman
+      if: ${{ runner.os == 'macOS' }}
       uses: ConorMacBride/install-package@v1
       with:
         brew: watchman
@@ -80,7 +81,6 @@ runs:
         key: ${{ runner.os }}-node-modules-${{ fromJSON(inputs.params).projectid }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
         restore-keys: |
           ${{ runner.os }}-node-modules-${{ fromJSON(inputs.params).projectid }}-
-          ${{ runner.os }}-node-modules-
 
     - name: Install Dependencies
       shell: bash

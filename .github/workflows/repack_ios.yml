@@ -70,8 +70,14 @@ jobs:
         uses: actions/setup-node@v4.0.4
         with:
           node-version: ${{ fromJSON(steps.fetch-config.outputs.params).node }}
-          cache: "yarn"
-          cache-dependency-path: input/yarn.lock
+
+      - name: Cache Node Modules
+        uses: actions/cache@v4
+        with:
+          path: input/node_modules
+          key: ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-
 
       - name: Install Watchman
         uses: ConorMacBride/install-package@v1
