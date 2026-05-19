@@ -43,9 +43,9 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
             input/android/.gradle
-          key: ${{ runner.os }}-gradle-${{ fromJSON(github.event.inputs.params).projectid }}-${{ hashFiles('input/android/**/*.gradle*', 'input/android/gradle-wrapper.properties') }}
+          key: ${{ runner.os }}-gradle-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-${{ hashFiles('input/android/**/*.gradle*', 'input/android/gradle-wrapper.properties') }}
           restore-keys: |
-            ${{ runner.os }}-gradle-${{ fromJSON(github.event.inputs.params).projectid }}-
+            ${{ runner.os }}-gradle-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -67,9 +67,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: input/node_modules
-          key: ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-
+            ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-
       - name: Increase File Watcher Limit
         run: |
           echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf

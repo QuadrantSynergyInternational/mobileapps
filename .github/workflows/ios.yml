@@ -73,9 +73,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: input/node_modules
-          key: ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-
+            ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-
       - name: Install & Cache Watchman
         uses: ConorMacBride/install-package@v1
         with:
@@ -91,9 +91,9 @@ jobs:
           path: |
             input/ios/Pods
             ~/Library/Caches/CocoaPods
-          key: ${{ runner.os }}-pods-${{ fromJSON(github.event.inputs.params).projectid }}-${{ hashFiles('input/ios/Podfile.lock') }}
+          key: ${{ runner.os }}-pods-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-${{ hashFiles('input/ios/Podfile.lock') }}
           restore-keys: |
-            ${{ runner.os }}-pods-${{ fromJSON(github.event.inputs.params).projectid }}-
+            ${{ runner.os }}-pods-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-
       - name: Pod Repo
         run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git || pod repo update QuadrantSpecs
       # - name: Clean Podfile.lock
@@ -171,9 +171,9 @@ jobs:
           repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
           files: |
-            ./input/android/**/mapping.txt
-            ./input/android/**/*.bundle.map
-            ./input/android/**/*.jsbundle.map
+            ./input/**/mapping.txt
+            ./input/**/*.bundle.map
+            ./input/**/*.jsbundle.map
             ./**/*.dSYM.zip
             # ./**/Podfile.lock
           tag_name: "v${{ steps.package-version.outputs.current-version}}-${{ fromJSON(github.event.inputs.params).configuration }}-${{ fromJSON(github.event.inputs.params).branch }}"
