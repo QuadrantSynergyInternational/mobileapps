@@ -69,13 +69,13 @@ jobs:
         if: ${{ fromJSON(github.event.inputs.params).node != '' }}
         with:
           node-version: ${{ fromJSON(github.event.inputs.params).node }}
-      - name: Cache Node Modules
-        uses: actions/cache@v4
-        with:
-          path: input/node_modules
-          key: ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-
+      # - name: Cache Node Modules
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: input/node_modules
+      #     key: ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-
       - name: Install & Cache Watchman
         uses: ConorMacBride/install-package@v1
         with:
@@ -85,15 +85,15 @@ jobs:
         run: |
           corepack enable
           yarn install
-      - name: Cache CocoaPods
-        uses: actions/cache@v4
-        with:
-          path: |
-            input/ios/Pods
-            ~/Library/Caches/CocoaPods
-          key: ${{ runner.os }}-pods-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-${{ hashFiles('input/ios/Podfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pods-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-
+      # - name: Cache CocoaPods
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: |
+      #       input/ios/Pods
+      #       ~/Library/Caches/CocoaPods
+      #     key: ${{ runner.os }}-pods-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-${{ hashFiles('input/ios/Podfile.lock') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-pods-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-
       - name: Pod Repo
         run: pod repo add QuadrantSpecs https://oktapod.quadrant-si.id/framework/quadrant.specs.git || pod repo update QuadrantSpecs
       # - name: Clean Podfile.lock
