@@ -5,7 +5,7 @@ on:
     inputs:
       params:
         type: string
-        description: Build Params JSON. Required: repo, branch, scriptpath, scriptShell, artifactPaths.
+        description: "Build Params JSON. Required: repo, branch, scriptpath, scriptShell, artifactPaths."
         required: true
 
 permissions:
