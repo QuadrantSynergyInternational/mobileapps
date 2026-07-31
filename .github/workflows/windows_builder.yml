@@ -51,7 +51,14 @@ jobs:
           PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
         run: |
           $params = $env:PARAMS | ConvertFrom-Json
-          Invoke-WebRequest -UseBasicParsing -Method Post -Uri "https://$env:DOMAIN/projects/$env:PROJECT_ID/trigger-log?wf_id=$env:RUN_ID&params=$([uri]::EscapeDataString($env:PARAMS))&uniqueId=$($params.uniqueId)&version=$env:VERSION&platform=windows" -Headers @{ "X-AppCenter-Secret" = $env:APPCENTER_SECRET }
+          $form = @{
+            wf_id = $env:RUN_ID
+            params = $env:PARAMS
+            uniqueId = $params.uniqueId
+            version = $env:VERSION
+            platform = "windows"
+          }
+          Invoke-WebRequest -UseBasicParsing -Method Post -Uri "https://$env:DOMAIN/projects/$env:PROJECT_ID/trigger-log" -Headers @{ "X-AppCenter-Secret" = $env:APPCENTER_SECRET } -Form $form
 
       - name: Setup Node.js environment
         if: ${{ fromJSON(github.event.inputs.params).node != '' && fromJSON(github.event.inputs.params).node != null }}
