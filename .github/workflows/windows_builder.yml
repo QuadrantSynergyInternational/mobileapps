@@ -1,0 +1,127 @@
+name: Build Windows Artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      params:
+        type: string
+        description: Build Params JSON. Required: repo, branch, scriptpath, scriptShell, artifactPaths.
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Clone Repo
+        shell: pwsh
+        env:
+          REPO: ${{ fromJSON(github.event.inputs.params).repo }}
+          BRANCH: ${{ fromJSON(github.event.inputs.params).branch }}
+          GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
+          GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
+        run: |
+          $url = "https://$env:GIT_USERNAME`:$env:GIT_PASSWORD@$env:REPO"
+          git clone --depth=1 --single-branch --branch "$env:BRANCH" "$url" input
+
+      - name: Get App Version
+        id: package-version
+        shell: pwsh
+        working-directory: input
+        run: |
+          if (Test-Path package.json) {
+            $version = node -p "require('./package.json').version"
+          } else {
+            $version = Get-Date -Format 'yyyy.M.d.HHmmss'
+          }
+          "current-version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Logging
+        shell: pwsh
+        env:
+          APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
+          PARAMS: ${{ github.event.inputs.params }}
+          RUN_ID: ${{ github.run_id }}
+          VERSION: ${{ steps.package-version.outputs.current-version }}
+          DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
+        run: |
+          $params = $env:PARAMS | ConvertFrom-Json
+          Invoke-WebRequest -UseBasicParsing -Method Post -Uri "https://$env:DOMAIN/projects/$env:PROJECT_ID/trigger-log?wf_id=$env:RUN_ID&params=$([uri]::EscapeDataString($env:PARAMS))&uniqueId=$($params.uniqueId)&version=$env:VERSION&platform=windows" -Headers @{ "X-AppCenter-Secret" = $env:APPCENTER_SECRET }
+
+      - name: Setup Node.js environment
+        if: ${{ fromJSON(github.event.inputs.params).node != '' && fromJSON(github.event.inputs.params).node != null }}
+        uses: actions/setup-node@v4.0.4
+        with:
+          node-version: ${{ fromJSON(github.event.inputs.params).node }}
+
+      - name: Execute PowerShell build script
+        if: ${{ fromJSON(github.event.inputs.params).scriptShell == 'powershell' }}
+        shell: pwsh
+        working-directory: input
+        env:
+          BUILD_SCRIPT: ${{ fromJSON(github.event.inputs.params).scriptpath }}
+        run: |
+          $script = (Resolve-Path -LiteralPath $env:BUILD_SCRIPT).Path
+          $workspace = (Resolve-Path .).Path
+          if (-not $script.StartsWith("$workspace$([IO.Path]::DirectorySeparatorChar)")) { throw "Build script escapes repository" }
+          & $script
+
+      - name: Execute cmd build script
+        if: ${{ fromJSON(github.event.inputs.params).scriptShell == 'cmd' }}
+        shell: pwsh
+        working-directory: input
+        env:
+          BUILD_SCRIPT: ${{ fromJSON(github.event.inputs.params).scriptpath }}
+        run: |
+          $script = (Resolve-Path -LiteralPath $env:BUILD_SCRIPT).Path
+          $workspace = (Resolve-Path .).Path
+          if (-not $script.StartsWith("$workspace$([IO.Path]::DirectorySeparatorChar)")) { throw "Build script escapes repository" }
+          & cmd.exe /d /s /c "call `"$script`""
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Resolve artifact paths
+        id: artifact-paths
+        shell: pwsh
+        working-directory: input
+        env:
+          ARTIFACT_PATHS: ${{ toJSON(fromJSON(github.event.inputs.params).artifactPaths) }}
+        run: |
+          $workspace = (Resolve-Path .).Path
+          $paths = $env:ARTIFACT_PATHS | ConvertFrom-Json
+          $resolved = foreach ($path in $paths) {
+            $matches = Get-ChildItem -Path $path -Force -ErrorAction SilentlyContinue
+            if (-not $matches) { throw "Artifact path not found: $path" }
+            foreach ($match in $matches) {
+              $target = $match.FullName
+              if (-not $target.StartsWith("$workspace$([IO.Path]::DirectorySeparatorChar)")) { throw "Artifact path escapes repository" }
+              $target
+            }
+          }
+          "paths<<EOF" >> $env:GITHUB_OUTPUT
+          $resolved >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+
+      - name: Publish release artifacts
+        id: release
+        uses: muhamad-rizki/action-gh-release@v3.0.1
+        with:
+          repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: ${{ steps.artifact-paths.outputs.paths }}
+          tag_name: v${{ steps.package-version.outputs.current-version }}-${{ fromJSON(github.event.inputs.params).configuration || 'Release' }}-${{ fromJSON(github.event.inputs.params).branch }}
+          body: Windows artifact build v${{ steps.package-version.outputs.current-version }}
+
+      - name: Update release
+        shell: pwsh
+        env:
+          APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
+          DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        run: |
+          Invoke-WebRequest -UseBasicParsing -Method Post -Uri "https://$env:DOMAIN/projects/$env:PROJECT_ID/release?id=$env:RELEASE_ID" -Headers @{ "X-AppCenter-Secret" = $env:APPCENTER_SECRET }

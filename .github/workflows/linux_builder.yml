@@ -1,0 +1,105 @@
+name: Build Linux Artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      params:
+        type: string
+        description: Build Params JSON. Required: repo, branch, scriptpath, scriptShell, artifactPaths.
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Clone Repo
+        run: |
+          git clone --depth=1 --single-branch \
+            --branch=${{ fromJSON(github.event.inputs.params).branch }} \
+            https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} \
+            input
+
+      - name: Get App Version
+        id: package-version
+        working-directory: input
+        run: |
+          current_version=$(node -p "require('./package.json').version" 2>/dev/null || date +%Y.%m.%d.%H%M%S)
+          echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
+
+      - name: Logging
+        run: |
+          curl -s -f -L -X POST \
+            -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+            --data-urlencode "wf_id=${{ github.run_id }}" \
+            --data-urlencode "params=${{ github.event.inputs.params }}" \
+            --data-urlencode "uniqueId=${{ fromJSON(github.event.inputs.params).uniqueId }}" \
+            --data-urlencode "version=${{ steps.package-version.outputs.current-version }}" \
+            --data-urlencode "platform=linux" \
+            https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log
+
+      - name: Setup Node.js environment
+        if: ${{ fromJSON(github.event.inputs.params).node != '' && fromJSON(github.event.inputs.params).node != null }}
+        uses: actions/setup-node@v4.0.4
+        with:
+          node-version: ${{ fromJSON(github.event.inputs.params).node }}
+
+      - name: Execute build script
+        working-directory: input
+        env:
+          BUILD_SCRIPT: ${{ fromJSON(github.event.inputs.params).scriptpath }}
+        run: |
+          set -euo pipefail
+          test -f "$BUILD_SCRIPT"
+          chmod +x "$BUILD_SCRIPT"
+          bash "$BUILD_SCRIPT"
+
+      - name: Resolve artifact paths
+        id: artifact-paths
+        working-directory: input
+        env:
+          ARTIFACT_PATHS: ${{ toJSON(fromJSON(github.event.inputs.params).artifactPaths) }}
+        run: |
+          set -euo pipefail
+          workspace=$(realpath "$PWD")
+          paths=$(mktemp)
+          node - <<'NODE' > "$paths"
+          for (const path of JSON.parse(process.env.ARTIFACT_PATHS)) console.log(path);
+          NODE
+          resolved=$(mktemp)
+          while IFS= read -r path; do
+            shopt -s nullglob
+            matches=("$path")
+            shopt -u nullglob
+            ((${#matches[@]})) || { echo "Artifact path not found: $path" >&2; exit 1; }
+            for match in "${matches[@]}"; do
+              target=$(realpath "$match")
+              case "$target" in "$workspace"/*) ;; *) echo "Artifact path escapes repository" >&2; exit 1 ;; esac
+              printf '%s\n' "$target" >> "$resolved"
+            done
+          done < "$paths"
+          {
+            echo 'paths<<EOF'
+            cat "$resolved"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish release artifacts
+        id: release
+        uses: muhamad-rizki/action-gh-release@v3.0.1
+        with:
+          repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
+          token: ${{ secrets.GH_PAT }}
+          files: ${{ steps.artifact-paths.outputs.paths }}
+          tag_name: v${{ steps.package-version.outputs.current-version }}-${{ fromJSON(github.event.inputs.params).configuration || 'Release' }}-${{ fromJSON(github.event.inputs.params).branch }}
+          body: Linux artifact build v${{ steps.package-version.outputs.current-version }}
+
+      - name: Update release
+        run: |
+          curl -s -f -L -X POST \
+            -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
+            https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/release?id=${{ steps.release.outputs.id }}
