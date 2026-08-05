@@ -1,0 +1,153 @@
+name: Publish Release Asset
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: AppCenter artifact job ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-release-asset-${{ github.event.inputs.job_id }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Fetch validated artifact job
+        id: job
+        env:
+          WORKER_URL: ${{ secrets.ARTIFACT_WORKER_URL }}
+          WORKER_API_KEY: ${{ secrets.ARTIFACT_WORKER_API_KEY }}
+          JOB_ID: ${{ github.event.inputs.job_id }}
+        run: |
+          set -euo pipefail
+          test -n "$WORKER_URL"
+          test -n "$WORKER_API_KEY"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $WORKER_API_KEY" \
+            "$WORKER_URL/action/jobs/$JOB_ID" > job.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const response = JSON.parse(fs.readFileSync('job.json', 'utf8'));
+          const job = response.data;
+          const required = ['id', 'repository', 'release_tag', 'filename', 'expected_size'];
+          if (!job || required.some((key) => typeof job[key] !== 'string' && key !== 'expected_size')) {
+            throw new Error('Worker returned invalid artifact job metadata');
+          }
+          if (typeof response.downloadUrl !== 'string' || !response.downloadUrl.startsWith('https://')) {
+            throw new Error('Worker returned invalid artifact download URL');
+          }
+          const output = process.env.GITHUB_OUTPUT;
+          for (const [key, value] of Object.entries({
+            job_id: job.id,
+            repository: job.repository,
+            release_tag: job.release_tag,
+            filename: job.filename,
+            expected_size: String(job.expected_size),
+            download_url: response.downloadUrl,
+            sha256: job.sha256 || '',
+          })) fs.appendFileSync(output, `${key}=${value}\n`);
+          NODE
+
+      - name: Download staged artifact to runner disk
+        env:
+          DOWNLOAD_URL: ${{ steps.job.outputs.download_url }}
+          FILENAME: ${{ steps.job.outputs.filename }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output "artifact/$FILENAME" \
+            "$DOWNLOAD_URL"
+
+      - name: Verify staged artifact
+        env:
+          FILENAME: ${{ steps.job.outputs.filename }}
+          EXPECTED_SIZE: ${{ steps.job.outputs.expected_size }}
+          EXPECTED_SHA256: ${{ steps.job.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          test "$(stat --printf='%s' "artifact/$FILENAME")" = "$EXPECTED_SIZE"
+          if [ -n "$EXPECTED_SHA256" ]; then
+            echo "$EXPECTED_SHA256  artifact/$FILENAME" | sha256sum --check --strict
+          fi
+
+      - name: Upload asset to validated private GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPOSITORY: ${{ steps.job.outputs.repository }}
+          RELEASE_TAG: ${{ steps.job.outputs.release_tag }}
+          FILENAME: ${{ steps.job.outputs.filename }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          gh release view "$RELEASE_TAG" --repo "$REPOSITORY" >/dev/null \
+            || gh release create "$RELEASE_TAG" --repo "$REPOSITORY" --title "$RELEASE_TAG"
+          for attempt in 1 2 3; do
+            if gh release upload "$RELEASE_TAG" "artifact/$FILENAME" --repo "$REPOSITORY" --clobber; then
+              exit 0
+            fi
+            # GitHub can leave a zero-byte `starter` asset after a 502. Remove
+            # only that incomplete asset before retrying; never delete valid data.
+            gh api "/repos/$REPOSITORY/releases/tags/$RELEASE_TAG" --jq \
+              ".assets[] | select(.name == \"$FILENAME\" and (.state == \"starter\" or .size == 0)) | .id" \
+              | xargs -r -n1 -I{} gh api --method DELETE "/repos/$REPOSITORY/releases/assets/{}"
+            sleep "$attempt"
+          done
+          exit 1
+
+      - name: Confirm publication completion
+        if: success()
+        env:
+          WORKER_URL: ${{ secrets.ARTIFACT_WORKER_URL }}
+          WORKER_API_KEY: ${{ secrets.ARTIFACT_WORKER_API_KEY }}
+          JOB_ID: ${{ steps.job.outputs.job_id }}
+          REPOSITORY: ${{ steps.job.outputs.repository }}
+          RELEASE_TAG: ${{ steps.job.outputs.release_tag }}
+          FILENAME: ${{ steps.job.outputs.filename }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          set -euo pipefail
+          asset=$(gh api "/repos/$REPOSITORY/releases/tags/$RELEASE_TAG" \
+            --jq ".assets[] | select(.name == \"$FILENAME\") | {id, name, size, digest}" | tail -1)
+          test -n "$asset"
+          sha256=$(sha256sum "artifact/$FILENAME" | awk '{print $1}')
+          ASSET="$asset" SHA256="$sha256" node - <<'NODE' > callback.json
+          const fs = require('fs');
+          const asset = JSON.parse(process.env.ASSET);
+          fs.writeFileSync('callback.json', JSON.stringify({
+            success: true,
+            githubAssetId: String(asset.id),
+            filename: asset.name,
+            size: asset.size,
+            sha256: process.env.SHA256,
+          }));
+          NODE
+          curl --fail --silent --show-error \
+            --request POST \
+            -H "Authorization: Bearer $WORKER_API_KEY" \
+            -H "Content-Type: application/json" \
+            --data @callback.json \
+            "$WORKER_URL/action/jobs/$JOB_ID/callback"
+
+      - name: Report publication failure
+        if: failure() && steps.job.outputs.job_id != ''
+        env:
+          WORKER_URL: ${{ secrets.ARTIFACT_WORKER_URL }}
+          WORKER_API_KEY: ${{ secrets.ARTIFACT_WORKER_API_KEY }}
+          JOB_ID: ${{ steps.job.outputs.job_id }}
+        run: |
+          set -euo pipefail
+          curl --silent --show-error \
+            --request POST \
+            -H "Authorization: Bearer $WORKER_API_KEY" \
+            -H "Content-Type: application/json" \
+            --data '{"success":false,"error":"GitHub Action publication failed"}' \
+            "$WORKER_URL/action/jobs/$JOB_ID/callback" || true
