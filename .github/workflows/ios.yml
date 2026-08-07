@@ -7,8 +7,53 @@ on:
         description: Build Params
         required: true
 jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    outputs:
+      runner: ${{ steps.validate.outputs.runner }}
+      xcode-version: ${{ steps.validate.outputs.xcode-version }}
+    steps:
+      - name: Validate build machine and Xcode version
+        id: validate
+        env:
+          PARAMS: ${{ github.event.inputs.params }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          let params;
+          try {
+            params = JSON.parse(process.env.PARAMS);
+          } catch {
+            console.error('params must be valid JSON');
+            process.exit(1);
+          }
+          const xcodeByRunner = {
+            'macos-14': ['16.0', '16.1', '16.2', '16.3', '16.4'],
+            'macos-15': ['16.0', '16.1', '16.2', '16.3', '16.4'],
+            'macos-26': ['26.0.1', '26.1.1', '26.2', '26.3', '26.4.1', '26.5', '26.6'],
+            'macos-26-intel': ['26.0.1', '26.1.1', '26.2', '26.3', '26.4.1', '26.5', '26.6'],
+          };
+          // Compatibility fallbacks for AppCenter versions before build-machine dispatch.
+          const runner = params.buildMachine === undefined || params.buildMachine === null || params.buildMachine === ''
+            ? 'macos-14'
+            : params.buildMachine;
+          const xcode = params.xcodeversion === undefined || params.xcodeversion === null || params.xcodeversion === ''
+            ? '16.4'
+            : params.xcodeversion;
+          if (typeof runner !== 'string' || !Object.prototype.hasOwnProperty.call(xcodeByRunner, runner)) {
+            console.error(`Unsupported buildMachine: ${runner}`);
+            process.exit(1);
+          }
+          if (typeof xcode !== 'string' || !xcodeByRunner[runner].includes(xcode)) {
+            console.error(`Unsupported xcodeversion ${xcode} for ${runner}`);
+            process.exit(1);
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `runner=${runner}\nxcode-version=${xcode}\n`);
+          NODE
+
   build:
-    runs-on: macos-14
+    needs: preflight
+    runs-on: ${{ needs.preflight.outputs.runner }}
     env:
       SENTRY_ALLOW_FAILURE: true
     steps:
@@ -111,10 +156,23 @@ jobs:
             echo "React Native New Architecture DISABLED"
           fi
       - name: Select Xcode
-        if: ${{ fromJSON(github.event.inputs.params).xcodeversion != '' }}
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: ${{ fromJSON(github.event.inputs.params).xcodeversion }}
+          xcode-version: ${{ needs.preflight.outputs.xcode-version }}
+      - name: Verify selected Xcode version
+        env:
+          EXPECTED_XCODE_VERSION: ${{ needs.preflight.outputs.xcode-version }}
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          actual_version=$(xcodebuild -version | awk '/^Xcode / { print $2; exit }')
+          case "$actual_version" in
+            "$EXPECTED_XCODE_VERSION") ;;
+            *)
+              echo "Expected Xcode $EXPECTED_XCODE_VERSION, got $actual_version" >&2
+              exit 1
+              ;;
+          esac
       - name: Pod install
         working-directory: input/ios
         run: |

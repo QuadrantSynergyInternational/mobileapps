@@ -12,8 +12,40 @@ permissions:
   contents: read
 
 jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    outputs:
+      runner: ${{ steps.validate.outputs.runner }}
+    steps:
+      - name: Validate build machine
+        id: validate
+        env:
+          PARAMS: ${{ github.event.inputs.params }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          let params;
+          try {
+            params = JSON.parse(process.env.PARAMS);
+          } catch {
+            console.error('params must be valid JSON');
+            process.exit(1);
+          }
+          const allowed = ['ubuntu-22.04', 'ubuntu-24.04'];
+          // Compatibility fallback for AppCenter versions before buildMachine dispatch.
+          const runner = params.buildMachine === undefined || params.buildMachine === null || params.buildMachine === ''
+            ? 'ubuntu-24.04'
+            : params.buildMachine;
+          if (typeof runner !== 'string' || !allowed.includes(runner)) {
+            console.error(`Unsupported buildMachine: ${runner}`);
+            process.exit(1);
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `runner=${runner}\n`);
+          NODE
+
   build:
-    runs-on: ubuntu-latest
+    needs: preflight
+    runs-on: ${{ needs.preflight.outputs.runner }}
     timeout-minutes: 30
 
     steps:
