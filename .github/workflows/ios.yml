@@ -198,6 +198,19 @@ jobs:
           export-options: |
             ./export.plist
             ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.plist
+      - name: Name IPA assets uniquely
+        id: artifact-names
+        env:
+          CONFIGURATION: ${{ fromJSON(github.event.inputs.params).configuration }}
+          SUFFIX: ${{ fromJSON(github.event.inputs.params).artifactSuffix }}
+        run: |
+          set -euo pipefail
+          ipa_name="output-${CONFIGURATION}-${SUFFIX}.ipa"
+          manifest_name="manifest-${SUFFIX}.plist"
+          mv "output-${CONFIGURATION}.ipa" "$ipa_name"
+          mv manifest.plist "$manifest_name"
+          echo "ipa=$ipa_name" >> "$GITHUB_OUTPUT"
+          echo "manifest=$manifest_name" >> "$GITHUB_OUTPUT"
       - name: Upload to release
         id: release
         uses: muhamad-rizki/action-gh-release@v3.0.1
@@ -205,8 +218,8 @@ jobs:
           repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
           files: |
-            output-${{ fromJSON(github.event.inputs.params).configuration }}.ipa
-            manifest.plist
+            ${{ steps.artifact-names.outputs.ipa }}
+            ${{ steps.artifact-names.outputs.manifest }}
             AppStoreInfo.plist
           tag_name: "v${{ steps.package-version.outputs.current-version}}-${{ fromJSON(github.event.inputs.params).configuration }}-${{ fromJSON(github.event.inputs.params).branch }}"
           body: "IPA Release v${{ steps.package-version.outputs.current-version}} (${{ fromJSON(github.event.inputs.params).configuration }})"
