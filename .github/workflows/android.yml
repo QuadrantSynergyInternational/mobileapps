@@ -124,7 +124,7 @@ jobs:
           done < <(find input -type f \( -name '*.apk' -o -name '*.aab' \) -print0)
       - name: Upload to release
         id: release
-        uses: muhamad-rizki/action-gh-release@v3.0.2
+        uses: muhamad-rizki/action-gh-release@v3.0.3
         with:
           repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
@@ -141,7 +141,7 @@ jobs:
           https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/release?id=${{ steps.release.outputs.id }}
       - name: Upload Source Maps
         id: release-maps
-        uses: muhamad-rizki/action-gh-release@v3.0.2
+        uses: muhamad-rizki/action-gh-release@v3.0.3
         with:
           repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}

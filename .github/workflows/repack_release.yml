@@ -62,7 +62,7 @@ jobs:
 
       - name: Upload to Release
         id: release
-        uses: muhamad-rizki/action-gh-release@v3.0.2
+        uses: muhamad-rizki/action-gh-release@v3.0.3
         with:
           repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
@@ -129,7 +129,7 @@ jobs:
 
       - name: Upload to Release
         id: release
-        uses: muhamad-rizki/action-gh-release@v3.0.2
+        uses: muhamad-rizki/action-gh-release@v3.0.3
         with:
           repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
