@@ -19,29 +19,24 @@ jobs:
     steps:
       - name: Validate build machine
         id: validate
-        env:
-          PARAMS: ${{ github.event.inputs.params }}
-        run: |
-          node <<'NODE'
-          const fs = require('fs');
-          let params;
-          try {
-            params = JSON.parse(process.env.PARAMS);
-          } catch {
-            console.error('params must be valid JSON');
-            process.exit(1);
-          }
-          const allowed = ['macos-14', 'macos-15', 'macos-26', 'macos-26-intel'];
-          // Compatibility fallback for AppCenter versions before buildMachine dispatch.
-          const runner = params.buildMachine === undefined || params.buildMachine === null || params.buildMachine === ''
-            ? 'macos-15'
-            : params.buildMachine;
-          if (typeof runner !== 'string' || !allowed.includes(runner)) {
-            console.error(`Unsupported buildMachine: ${runner}`);
-            process.exit(1);
-          }
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `runner=${runner}\n`);
-          NODE
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let params;
+            try {
+              params = JSON.parse(context.payload.inputs.params);
+            } catch {
+              core.setFailed("params must be valid JSON");
+              return;
+            }
+            const allowed = ["macos-14", "macos-15", "macos-26", "macos-26-intel"];
+            // Compatibility fallback for AppCenter versions before buildMachine dispatch.
+            const runner = params.buildMachine || "macos-15";
+            if (typeof runner !== "string" || !allowed.includes(runner)) {
+              core.setFailed(`Unsupported buildMachine: ${runner}`);
+              return;
+            }
+            core.setOutput("runner", runner);
 
   build:
     needs: preflight

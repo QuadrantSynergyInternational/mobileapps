@@ -15,41 +15,35 @@ jobs:
     steps:
       - name: Validate build machine and Xcode version
         id: validate
-        env:
-          PARAMS: ${{ github.event.inputs.params }}
-        run: |
-          node <<'NODE'
-          const fs = require('fs');
-          let params;
-          try {
-            params = JSON.parse(process.env.PARAMS);
-          } catch {
-            console.error('params must be valid JSON');
-            process.exit(1);
-          }
-          const xcodeByRunner = {
-            'macos-14': ['16.0', '16.1', '16.2', '16.3', '16.4'],
-            'macos-15': ['16.0', '16.1', '16.2', '16.3', '16.4'],
-            'macos-26': ['26.0.1', '26.1.1', '26.2', '26.3', '26.4.1', '26.5', '26.6'],
-            'macos-26-intel': ['26.0.1', '26.1.1', '26.2', '26.3', '26.4.1', '26.5', '26.6'],
-          };
-          // Compatibility fallbacks for AppCenter versions before build-machine dispatch.
-          const runner = params.buildMachine === undefined || params.buildMachine === null || params.buildMachine === ''
-            ? 'macos-14'
-            : params.buildMachine;
-          const xcode = params.xcodeversion === undefined || params.xcodeversion === null || params.xcodeversion === ''
-            ? '16.4'
-            : params.xcodeversion;
-          if (typeof runner !== 'string' || !Object.prototype.hasOwnProperty.call(xcodeByRunner, runner)) {
-            console.error(`Unsupported buildMachine: ${runner}`);
-            process.exit(1);
-          }
-          if (typeof xcode !== 'string' || !xcodeByRunner[runner].includes(xcode)) {
-            console.error(`Unsupported xcodeversion ${xcode} for ${runner}`);
-            process.exit(1);
-          }
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `runner=${runner}\nxcode-version=${xcode}\n`);
-          NODE
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let params;
+            try {
+              params = JSON.parse(context.payload.inputs.params);
+            } catch {
+              core.setFailed("params must be valid JSON");
+              return;
+            }
+            const xcodeByRunner = {
+              "macos-14": ["16.0", "16.1", "16.2", "16.3", "16.4"],
+              "macos-15": ["16.0", "16.1", "16.2", "16.3", "16.4"],
+              "macos-26": ["26.0.1", "26.1.1", "26.2", "26.3", "26.4.1", "26.5", "26.6"],
+              "macos-26-intel": ["26.0.1", "26.1.1", "26.2", "26.3", "26.4.1", "26.5", "26.6"],
+            };
+            // Compatibility fallbacks for AppCenter versions before build-machine dispatch.
+            const runner = params.buildMachine || "macos-14";
+            const xcode = params.xcodeversion || "16.4";
+            if (typeof runner !== "string" || !Object.hasOwn(xcodeByRunner, runner)) {
+              core.setFailed(`Unsupported buildMachine: ${runner}`);
+              return;
+            }
+            if (typeof xcode !== "string" || !xcodeByRunner[runner].includes(xcode)) {
+              core.setFailed(`Unsupported xcodeversion ${xcode} for ${runner}`);
+              return;
+            }
+            core.setOutput("runner", runner);
+            core.setOutput("xcode-version", xcode);
 
   build:
     needs: preflight
