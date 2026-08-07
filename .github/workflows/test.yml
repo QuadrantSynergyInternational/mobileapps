@@ -1,0 +1,29 @@
+name: Upload Dummy Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create dummy file
+        run: echo "This is a dummy test file." > dummy.txt
+
+      - name: Upload dummy file to Release
+        uses: muhamad-rizki/action-gh-release@v3.0.4
+        with:
+          files: dummy.txt
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0-dummy' }}
+          body: "Dummy file release test."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
