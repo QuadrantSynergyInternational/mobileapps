@@ -7,14 +7,32 @@ on:
   workflow_dispatch:
 
 jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    outputs:
+      runner: ${{ steps.validate.outputs.runner }}
+    steps:
+      - name: Validate build machine
+        id: validate
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.setOutput("runner", "ubuntu-latest");
+
   release:
-    runs-on: ubuntu-latest
+    needs: preflight
+    runs-on: ${{ needs.preflight.outputs.runner }}
     permissions:
       contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4.0.4
+        with:
+          node-version: '20'
 
       - name: Create dummy file
         run: echo "This is a dummy test file." > dummy.txt
@@ -27,3 +45,4 @@ jobs:
           body: "Dummy file release test."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
