@@ -109,7 +109,7 @@ jobs:
 
       - name: Upload to release
         id: release
-        uses: muhamad-rizki/action-gh-release@v3.0.1
+        uses: muhamad-rizki/action-gh-release@v3.0.2
         with:
           repository: ${{ fromJSON(steps.fetch-config.outputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
@@ -128,7 +128,7 @@ jobs:
 
       - name: Upload Source Maps
         id: release-maps
-        uses: muhamad-rizki/action-gh-release@v3.0.1
+        uses: muhamad-rizki/action-gh-release@v3.0.2
         with:
           repository: ${{ fromJSON(steps.fetch-config.outputs.params).releaseTo }}
           token: ${{ secrets.GH_PAT }}
