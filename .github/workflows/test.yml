@@ -38,7 +38,7 @@ jobs:
         run: echo "This is a dummy test file." > dummy.txt
 
       - name: Upload dummy file to Release
-        uses: muhamad-rizki/action-gh-release@v3.0.4
+        uses: muhamad-rizki/action-gh-release@v3.0.3
         with:
           files: dummy.txt
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0-dummy' }}
