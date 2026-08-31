@@ -206,11 +206,18 @@ jobs:
         run: |
           set -euo pipefail
           ipa_name="output-${CONFIGURATION}-${SUFFIX}.ipa"
-          manifest_name="manifest-${SUFFIX}.plist"
           mv "output-${CONFIGURATION}.ipa" "$ipa_name"
-          mv manifest.plist "$manifest_name"
           echo "ipa=$ipa_name" >> "$GITHUB_OUTPUT"
-          echo "manifest=$manifest_name" >> "$GITHUB_OUTPUT"
+          if [ -f manifest.plist ]; then
+            manifest_name="manifest-${SUFFIX}.plist"
+            mv manifest.plist "$manifest_name"
+            echo "manifest=$manifest_name" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -f AppStoreInfo.plist ]; then
+            appstore_info_name="AppStoreInfo-${SUFFIX}.plist"
+            mv AppStoreInfo.plist "$appstore_info_name"
+            echo "appstore_info=$appstore_info_name" >> "$GITHUB_OUTPUT"
+          fi
       - name: Upload to release
         id: release
         uses: muhamad-rizki/action-gh-release@v3.0.5
@@ -220,7 +227,7 @@ jobs:
           files: |
             ${{ steps.artifact-names.outputs.ipa }}
             ${{ steps.artifact-names.outputs.manifest }}
-            AppStoreInfo.plist
+            ${{ steps.artifact-names.outputs.appstore_info }}
           tag_name: "v${{ steps.package-version.outputs.current-version}}-${{ fromJSON(github.event.inputs.params).configuration }}-${{ fromJSON(github.event.inputs.params).branch }}"
           body: "IPA Release v${{ steps.package-version.outputs.current-version}} (${{ fromJSON(github.event.inputs.params).configuration }})"
           body_path: ./input/${{ fromJSON(github.event.inputs.params).releasenote != '' && fromJSON(github.event.inputs.params).releasenote || 'releasenote.md' }}
