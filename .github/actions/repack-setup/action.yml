@@ -1,7 +1,7 @@
 name: Repack Common Setup
 description: >
   Shared setup steps for Android and iOS repack jobs:
-  clone source repo, read app version, send log, install Node/Watchman/yarn.
+  clone source repo, read app version, send log, install Node/yarn.
 
 inputs:
   params:
@@ -67,12 +67,6 @@ runs:
       uses: actions/setup-node@v4.0.4
       with:
         node-version: ${{ fromJSON(inputs.params).node }}
-
-    - name: Install Watchman
-      if: ${{ runner.os == 'macOS' }}
-      uses: ConorMacBride/install-package@v1
-      with:
-        brew: watchman
 
     - name: Cache Node Modules
       uses: actions/cache@v4

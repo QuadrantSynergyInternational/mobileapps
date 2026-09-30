@@ -104,11 +104,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-
 
-      - name: Install & Cache Watchman
-        uses: ConorMacBride/install-package@v1
-        with:
-          brew: watchman
-
       - name: Yarn Install
         working-directory: input
         run: |

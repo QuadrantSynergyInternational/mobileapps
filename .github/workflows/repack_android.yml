@@ -72,11 +72,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-
 
-      - name: Install Watchman
-        uses: ConorMacBride/install-package@v1
-        with:
-          brew: watchman
-
       - name: Install Dependencies
         working-directory: input
         run: |
