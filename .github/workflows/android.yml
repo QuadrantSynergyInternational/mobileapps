@@ -47,6 +47,8 @@ jobs:
         run: |
           current_version=$(node -e "console.log(require('./package.json').version)")
           echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
+          commit_hash=$(git rev-parse HEAD 2>/dev/null || echo "")
+          echo "commit-hash=$commit_hash" >> "$GITHUB_OUTPUT"
       - name: Logging
         run: |
           curl -s -L -G -X POST \
@@ -55,6 +57,7 @@ jobs:
           --data-urlencode 'params=${{ github.event.inputs.params }}' \
           --data-urlencode 'uniqueId=${{ fromJSON(github.event.inputs.params).uniqueId }}' \
           --data-urlencode 'version=${{ steps.package-version.outputs.current-version }}' \
+          --data-urlencode 'commit_hash=${{ steps.package-version.outputs.commit-hash }}' \
           --data-urlencode 'platform=android' \
           https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log
       - name: Setup Java JDK
@@ -138,7 +141,7 @@ jobs:
         run: |
           curl -s -L -X POST \
           -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/release?id=${{ steps.release.outputs.id }}
+          "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/release?id=${{ steps.release.outputs.id }}&commit_hash=${{ steps.package-version.outputs.commit-hash }}"
       - name: Upload Source Maps
         id: release-maps
         uses: muhamad-rizki/action-gh-release@v3.0.5
