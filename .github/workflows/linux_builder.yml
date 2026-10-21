@@ -45,10 +45,16 @@ jobs:
 
     steps:
       - name: Clone Repo
+        env:
+          GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
+          GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
+          BRANCH: ${{ fromJSON(github.event.inputs.params).branch }}
+          REPO: ${{ fromJSON(github.event.inputs.params).repo }}
         run: |
+          set -euo pipefail
           git clone --depth=1 --single-branch \
-            --branch=${{ fromJSON(github.event.inputs.params).branch }} \
-            https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} \
+            --branch="$BRANCH" \
+            "https://${GIT_USERNAME}:${GIT_PASSWORD}@${REPO}" \
             input
 
       - name: Get App Version
@@ -136,7 +142,13 @@ jobs:
           body: Linux artifact build v${{ steps.package-version.outputs.current-version }}
 
       - name: Update release
+        env:
+          APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
+          APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+          COMMIT_HASH: ${{ steps.package-version.outputs.commit-hash }}
         run: |
           curl -s -f -L -X POST \
-            -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-            "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/release?id=${{ steps.release.outputs.id }}&commit_hash=${{ steps.package-version.outputs.commit-hash }}"
+            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
+            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/release?id=$RELEASE_ID&commit_hash=$COMMIT_HASH"

@@ -51,10 +51,36 @@ jobs:
     env:
       SENTRY_ALLOW_FAILURE: true
     steps:
+      - name: Mask sensitive parameters
+        env:
+          PARAMS: ${{ github.event.inputs.params }}
+        run: |
+          node -e '
+            try {
+              const p = JSON.parse(process.env.PARAMS || "{}");
+              for (const k of ["p12pass", "keystorePassword", "keyPassword", "password"]) {
+                if (p[k]) console.log(`::add-mask::${p[k]}`);
+              }
+            } catch {}
+          '
+
       - name: Clone Repo
-        run: git clone --depth=1 --single-branch --branch=${{ fromJSON(github.event.inputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(github.event.inputs.params).repo }} input
+        env:
+          GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
+          GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
+          BRANCH: ${{ fromJSON(github.event.inputs.params).branch }}
+          REPO: ${{ fromJSON(github.event.inputs.params).repo }}
+        run: |
+          set -euo pipefail
+          git clone --depth=1 --single-branch --branch="$BRANCH" "https://${GIT_USERNAME}:${GIT_PASSWORD}@${REPO}" input
+
       - name: Clone Provision
-        run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          set -euo pipefail
+          git clone --depth=1 --single-branch --branch=main "https://admindevopsqsi:${GH_PAT}@github.com/admindevopsqsi/ios-provision.git" provision
+
       - name: Get Apps Version
         id: package-version
         working-directory: input
@@ -63,21 +89,36 @@ jobs:
           echo "current-version=$current_version" >> "$GITHUB_OUTPUT"
           commit_hash=$(git rev-parse HEAD 2>/dev/null || echo "")
           echo "commit-hash=$commit_hash" >> "$GITHUB_OUTPUT"
+
       - name: Logging
+        env:
+          APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
+          APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+          RUN_ID: ${{ github.run_id }}
+          PARAMS: ${{ github.event.inputs.params }}
+          UNIQUE_ID: ${{ fromJSON(github.event.inputs.params).uniqueId }}
+          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
+          VERSION: ${{ steps.package-version.outputs.current-version }}
+          COMMIT_HASH: ${{ steps.package-version.outputs.commit-hash }}
         run: |
-          curl -s -L -G -X POST \
-          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-          --data-urlencode 'wf_id=${{ github.run_id }}' \
-          --data-urlencode 'params=${{ github.event.inputs.params }}' \
-          --data-urlencode 'uniqueId=${{ fromJSON(github.event.inputs.params).uniqueId }}' \
-          --data-urlencode 'version=${{ steps.package-version.outputs.current-version }}' \
-          --data-urlencode 'commit_hash=${{ steps.package-version.outputs.commit-hash }}' \
-          --data-urlencode 'platform=ios' \
-          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/trigger-log
+          curl -s -L -X POST \
+            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
+            --data-urlencode "wf_id=$RUN_ID" \
+            --data-urlencode "params=$PARAMS" \
+            --data-urlencode "uniqueId=$UNIQUE_ID" \
+            --data-urlencode "version=$VERSION" \
+            --data-urlencode "commit_hash=$COMMIT_HASH" \
+            --data-urlencode "platform=ios" \
+            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/trigger-log"
+
       - name: Validate P12
+        env:
+          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
+          PROVISION_FILE: ${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}
+          P12_PASS: ${{ fromJSON(github.event.inputs.params).p12pass || '' }}
         run: |
           set -euo pipefail
-          P12_FILE="./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.p12"
+          P12_FILE="./provision/${PROJECT_ID}/${PROVISION_FILE}.p12"
           echo "🔧 Creating temporary keychain..."
           security create-keychain -p "" temp.keychain
 
@@ -85,7 +126,7 @@ jobs:
           security unlock-keychain -p "" temp.keychain
 
           echo "🔍 Validating P12 import..."
-          if security import "$P12_FILE" -k temp.keychain -P "${{ fromJSON(github.event.inputs.params).p12pass || '' }}" \
+          if security import "$P12_FILE" -k temp.keychain -P "$P12_PASS" \
                -T /usr/bin/codesign \
                -T /usr/bin/security \
                -T /usr/bin/productbuild \
@@ -231,10 +272,16 @@ jobs:
           body: "IPA Release v${{ steps.package-version.outputs.current-version}} (${{ fromJSON(github.event.inputs.params).configuration }})"
           body_path: ./input/${{ fromJSON(github.event.inputs.params).releasenote != '' && fromJSON(github.event.inputs.params).releasenote || 'releasenote.md' }}
       - name: Update DB
+        env:
+          APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
+          APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+          COMMIT_HASH: ${{ steps.package-version.outputs.commit-hash }}
         run: |
           curl -s -L -X POST \
-          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-          "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ fromJSON(github.event.inputs.params).projectid }}/release?id=${{ steps.release.outputs.id }}&commit_hash=${{ steps.package-version.outputs.commit-hash }}"
+            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
+            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/release?id=$RELEASE_ID&commit_hash=$COMMIT_HASH"
       - name: Upload Source Maps
         id: release-maps
         uses: muhamad-rizki/action-gh-release@v3.0.5

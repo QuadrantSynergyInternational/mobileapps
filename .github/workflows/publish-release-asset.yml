@@ -23,26 +23,26 @@ jobs:
       - name: Fetch validated artifact job
         id: job
         env:
-          WORKER_URL: ${{ secrets.ARTIFACT_WORKER_URL }}
-          WORKER_API_KEY: ${{ secrets.ARTIFACT_WORKER_API_KEY }}
+          APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+          APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           JOB_ID: ${{ github.event.inputs.job_id }}
         run: |
           set -euo pipefail
-          test -n "$WORKER_URL"
-          test -n "$WORKER_API_KEY"
+          test -n "$APPCENTER_DOMAIN"
+          test -n "$APPCENTER_SECRET"
           curl --fail --silent --show-error \
-            -H "Authorization: Bearer $WORKER_API_KEY" \
-            "$WORKER_URL/action/jobs/$JOB_ID" > job.json
+            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
+            "https://$APPCENTER_DOMAIN/api/artifact-jobs/$JOB_ID" > job.json
           node - <<'NODE'
           const fs = require('fs');
           const response = JSON.parse(fs.readFileSync('job.json', 'utf8'));
           const job = response.data;
           const required = ['id', 'repository', 'release_tag', 'filename', 'expected_size'];
           if (!job || required.some((key) => typeof job[key] !== 'string' && key !== 'expected_size')) {
-            throw new Error('Worker returned invalid artifact job metadata');
+            throw new Error('AppCenter returned invalid artifact job metadata');
           }
           if (typeof response.downloadUrl !== 'string' || !response.downloadUrl.startsWith('https://')) {
-            throw new Error('Worker returned invalid artifact download URL');
+            throw new Error('AppCenter returned invalid artifact download URL');
           }
           const output = process.env.GITHUB_OUTPUT;
           for (const [key, value] of Object.entries({
@@ -63,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifact
-          curl --fail --location --retry 3 --retry-all-errors \
+          curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
             --output "artifact/$FILENAME" \
             "$DOWNLOAD_URL"
 
@@ -106,8 +106,8 @@ jobs:
       - name: Confirm publication completion
         if: success()
         env:
-          WORKER_URL: ${{ secrets.ARTIFACT_WORKER_URL }}
-          WORKER_API_KEY: ${{ secrets.ARTIFACT_WORKER_API_KEY }}
+          APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+          APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           JOB_ID: ${{ steps.job.outputs.job_id }}
           REPOSITORY: ${{ steps.job.outputs.repository }}
           RELEASE_TAG: ${{ steps.job.outputs.release_tag }}
@@ -132,22 +132,22 @@ jobs:
           NODE
           curl --fail --silent --show-error \
             --request POST \
-            -H "Authorization: Bearer $WORKER_API_KEY" \
+            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
             -H "Content-Type: application/json" \
             --data @callback.json \
-            "$WORKER_URL/action/jobs/$JOB_ID/callback"
+            "https://$APPCENTER_DOMAIN/api/artifact-jobs/$JOB_ID/callback"
 
       - name: Report publication failure
         if: failure() && steps.job.outputs.job_id != ''
         env:
-          WORKER_URL: ${{ secrets.ARTIFACT_WORKER_URL }}
-          WORKER_API_KEY: ${{ secrets.ARTIFACT_WORKER_API_KEY }}
+          APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+          APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           JOB_ID: ${{ steps.job.outputs.job_id }}
         run: |
           set -euo pipefail
           curl --silent --show-error \
             --request POST \
-            -H "Authorization: Bearer $WORKER_API_KEY" \
+            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
             -H "Content-Type: application/json" \
             --data '{"success":false,"error":"GitHub Action publication failed"}' \
-            "$WORKER_URL/action/jobs/$JOB_ID/callback" || true
+            "https://$APPCENTER_DOMAIN/api/artifact-jobs/$JOB_ID/callback" || true

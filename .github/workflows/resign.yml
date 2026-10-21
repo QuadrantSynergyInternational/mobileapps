@@ -37,12 +37,21 @@ jobs:
     runs-on: macOS-latest
     steps:
       - name: Logging
+        env:
+          APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
+          APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+          PROJECT_ID: ${{ github.event.inputs.projectid }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          curl -L -X POST --fail-with-body \
-          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/trigger-log?wf_id=${{ github.run_id }}
+          curl -s -L -X POST \
+            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
+            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/trigger-log?wf_id=$RUN_ID"
       - name: Clone Provision
-        run: git clone --depth=1 --single-branch --branch=main https://admindevopsqsi:${{ secrets.GH_PAT }}@github.com/admindevopsqsi/ios-provision.git provision
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          set -euo pipefail
+          git clone --depth=1 --single-branch --branch=main "https://admindevopsqsi:${GH_PAT}@github.com/admindevopsqsi/ios-provision.git" provision
       - name: Download IPA
         run: curl --fail-with-body -L --output output.ipa ${{ github.event.inputs.url }}
       - name: Build IPA

@@ -18,14 +18,35 @@ jobs:
     steps:
       - name: Fetch Build Configuration
         id: fetch-config
+        env:
+          APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
+          APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+          PROJECT_ID: ${{ github.event.inputs.projectid }}
+          BRANCH: ${{ github.event.inputs.branch }}
         run: |
+          set -euo pipefail
           PARAMS=$(curl -s -f -L -G \
-            -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-            "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/buildparams?platform=android&branch=${{ github.event.inputs.branch }}")
+            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
+            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/buildparams?platform=android&branch=$BRANCH")
           echo "params=$PARAMS" >> "$GITHUB_OUTPUT"
+          PARAMS="$PARAMS" node -e '
+            try {
+              const p = JSON.parse(process.env.PARAMS || "{}");
+              for (const k of ["p12pass", "keystorePassword", "keyPassword", "password"]) {
+                if (p[k]) console.log(`::add-mask::${p[k]}`);
+              }
+            } catch {}
+          '
 
       - name: Clone Repo
-        run: git clone --depth=1 --single-branch --branch=${{ fromJSON(steps.fetch-config.outputs.params).branch }} https://${{ secrets.GIT_USERNAME }}:${{ secrets.GIT_PASSWORD }}@${{ fromJSON(steps.fetch-config.outputs.params).repo }} input
+        env:
+          GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
+          GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
+          BRANCH: ${{ fromJSON(steps.fetch-config.outputs.params).branch }}
+          REPO: ${{ fromJSON(steps.fetch-config.outputs.params).repo }}
+        run: |
+          set -euo pipefail
+          git clone --depth=1 --single-branch --branch="$BRANCH" "https://${GIT_USERNAME}:${GIT_PASSWORD}@${REPO}" input
 
       - name: Get Apps Version
         id: package-version
@@ -37,16 +58,25 @@ jobs:
           echo "commit-hash=$commit_hash" >> "$GITHUB_OUTPUT"
 
       - name: Logging
+        env:
+          APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
+          APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+          RUN_ID: ${{ github.run_id }}
+          PARAMS: ${{ steps.fetch-config.outputs.params }}
+          UNIQUE_ID: ${{ fromJSON(steps.fetch-config.outputs.params).uniqueId }}
+          PROJECT_ID: ${{ github.event.inputs.projectid }}
+          VERSION: ${{ steps.package-version.outputs.current-version }}
+          COMMIT_HASH: ${{ steps.package-version.outputs.commit-hash }}
         run: |
           curl -s -f -L -X POST \
-          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-          --data-urlencode "wf_id=${{ github.run_id }}" \
-          --data-urlencode "params=${{ steps.fetch-config.outputs.params }}" \
-          --data-urlencode "uniqueId=${{ fromJSON(steps.fetch-config.outputs.params).uniqueId }}" \
-          --data-urlencode "version=${{ steps.package-version.outputs.current-version }}" \
-          --data-urlencode "commit_hash=${{ steps.package-version.outputs.commit-hash }}" \
-          --data-urlencode "platform=android" \
-          https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/trigger-log
+            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
+            --data-urlencode "wf_id=$RUN_ID" \
+            --data-urlencode "params=$PARAMS" \
+            --data-urlencode "uniqueId=$UNIQUE_ID" \
+            --data-urlencode "version=$VERSION" \
+            --data-urlencode "commit_hash=$COMMIT_HASH" \
+            --data-urlencode "platform=android" \
+            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/trigger-log"
 
       - name: Setup Java JDK
         uses: actions/setup-java@v4.4.0
@@ -124,10 +154,16 @@ jobs:
           body_path: ./input/${{ fromJSON(steps.fetch-config.outputs.params).releasenote || 'releasenote.md' }}
 
       - name: Update DB
+        env:
+          APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
+          APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+          PROJECT_ID: ${{ github.event.inputs.projectid }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+          COMMIT_HASH: ${{ steps.package-version.outputs.commit-hash }}
         run: |
           curl -s -f -L -X POST \
-          -H "X-AppCenter-Secret: ${{ secrets.APPCENTER_SECRET }}" \
-          "https://${{ secrets.APPCENTER_DOMAIN }}/projects/${{ github.event.inputs.projectid }}/release?id=${{ steps.release.outputs.id }}&commit_hash=${{ steps.package-version.outputs.commit-hash }}"
+            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
+            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/release?id=$RELEASE_ID&commit_hash=$COMMIT_HASH"
 
       - name: Upload Source Maps
         id: release-maps

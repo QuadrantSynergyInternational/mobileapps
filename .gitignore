@@ -1,2 +1,5 @@
 scripts/.env
 appcenter
+
+.codesight
+.pi-subagents
