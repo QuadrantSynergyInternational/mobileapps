@@ -41,5 +41,5 @@ jobs:
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           JOB_ID: ${{ github.event.inputs.job_id }}
-          IS_CANCELLED: ${{ cancelled() }}
-        run: node scripts/publish-asset.js --report-failure --job-id "$JOB_ID" --cancelled "$IS_CANCELLED"
+          JOB_STATUS: ${{ job.status }}
+        run: node scripts/publish-asset.js --report-failure --job-id "$JOB_ID" --status "$JOB_STATUS"

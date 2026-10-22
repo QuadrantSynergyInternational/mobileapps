@@ -9,22 +9,26 @@ const { parseCliArgs, httpRequest, maskValue } = require('./ci-helper');
 
 async function sendCallback(domain, secret, jobId, payload) {
   const url = `https://${domain}/api/artifact-jobs/${encodeURIComponent(jobId)}/callback`;
-  const res = await httpRequest(
-    url,
-    {
-      method: 'POST',
-      headers: {
-        'X-AppCenter-Secret': secret,
-        'Content-Type': 'application/json',
+  try {
+    const res = await httpRequest(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'X-AppCenter-Secret': secret,
+          'Content-Type': 'application/json',
+        },
       },
-    },
-    JSON.stringify(payload)
-  );
+      JSON.stringify(payload)
+    );
 
-  if (!res.ok) {
-    console.warn(`[publish-asset] Callback returned HTTP ${res.status}: ${res.statusText}`);
-  } else {
-    console.log(`[publish-asset] Successfully reported callback to AppCenter (HTTP ${res.status}).`);
+    if (!res.ok) {
+      console.warn(`[publish-asset] Callback returned HTTP ${res.status}: ${res.statusText}`);
+    } else {
+      console.log(`[publish-asset] Successfully reported callback to AppCenter (HTTP ${res.status}).`);
+    }
+  } catch (err) {
+    console.error(`[publish-asset] Network error while sending callback: ${err.message}`);
   }
 }
 
@@ -206,7 +210,10 @@ async function main() {
 
   // Handle failure/cancellation reporting mode
   if (args['report-failure'] || args['report-error']) {
-    const isCancelled = String(args.cancelled).toLowerCase() === 'true';
+    const jobStatus = String(args.status || process.env.JOB_STATUS || '').toLowerCase();
+    const isCancelled =
+      jobStatus === 'cancelled' ||
+      String(args.cancelled).toLowerCase() === 'true';
     const errMsg = isCancelled
       ? 'GitHub Action publication cancelled'
       : (args.error || 'GitHub Action publication failed');
