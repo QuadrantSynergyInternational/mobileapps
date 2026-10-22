@@ -23,57 +23,18 @@ jobs:
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          PROJECT_ID: ${{ github.event.inputs.projectid }}
-          BRANCH: ${{ github.event.inputs.branch }}
-        run: |
-          set -euo pipefail
-          PARAMS=$(curl -s -f -L -G \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/buildparams?platform=ios&branch=$BRANCH")
-          echo "params=$PARAMS" >> "$GITHUB_OUTPUT"
-
-          PROVISION_FILE=$(echo "$PARAMS" | jq -r 'if .provisionfile and .provisionfile != "" then .provisionfile else .branch end')
-          echo "provision_file=$PROVISION_FILE" >> "$GITHUB_OUTPUT"
-
-          PROVISION_RES=$(curl -s -f -L -G \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/provision?name=${PROVISION_FILE}.p12&details=true")
-          echo "provision=$PROVISION_RES" >> "$GITHUB_OUTPUT"
-
-          PARAMS="$PARAMS" PROVISION_RES="$PROVISION_RES" node -e '
-            try {
-              const p = JSON.parse(process.env.PARAMS || "{}");
-              for (const k of ["p12pass", "keystorePassword", "keyPassword", "password"]) {
-                if (p[k]) console.log(`::add-mask::${p[k]}`);
-              }
-            } catch {}
-            try {
-              const pr = JSON.parse(process.env.PROVISION_RES || "{}");
-              if (pr.password) console.log(`::add-mask::${pr.password}`);
-            } catch {}
-          '
+        run: node scripts/fetch-config.js --platform ios --project-id "${{ github.event.inputs.projectid }}" --branch "${{ github.event.inputs.branch }}"
 
       - name: Clone Source Repo
         env:
           GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
           GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
-          BRANCH: ${{ fromJSON(steps.fetch-config.outputs.params).branch }}
-          REPO: ${{ fromJSON(steps.fetch-config.outputs.params).repo }}
-        run: |
-          set -euo pipefail
-          git clone --depth=1 --single-branch \
-            --branch="$BRANCH" \
-            "https://${GIT_USERNAME}:${GIT_PASSWORD}@${REPO}" \
-            input
+        run: node scripts/clone-repo.js
 
       - name: Clone Provision Repo
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          set -euo pipefail
-          git clone --depth=1 --single-branch --branch=main \
-            "https://admindevopsqsi:${GH_PAT}@github.com/admindevopsqsi/ios-provision.git" \
-            provision
+        run: node scripts/clone-provision.js
 
       - name: Get App Version
         id: package-version
@@ -86,20 +47,7 @@ jobs:
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          RUN_ID: ${{ github.run_id }}
-          PARAMS: ${{ steps.fetch-config.outputs.params }}
-          UNIQUE_ID: ${{ fromJSON(steps.fetch-config.outputs.params).uniqueId }}
-          PROJECT_ID: ${{ github.event.inputs.projectid }}
-          VERSION: ${{ steps.package-version.outputs.current-version }}
-        run: |
-          curl -s -f -L -X POST \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            --data-urlencode "wf_id=$RUN_ID" \
-            --data-urlencode "params=$PARAMS" \
-            --data-urlencode "uniqueId=$UNIQUE_ID" \
-            --data-urlencode "version=$VERSION" \
-            --data-urlencode "platform=ios" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/trigger-log"
+        run: node scripts/trigger-log.js --platform ios --version "${{ steps.package-version.outputs.current-version }}"
 
       - name: Setup Node.js
         if: ${{ fromJSON(steps.fetch-config.outputs.params).node != '' && fromJSON(steps.fetch-config.outputs.params).node != null }}
@@ -140,7 +88,7 @@ jobs:
           IPA_FILENAME: ${{ fromJSON(steps.fetch-config.outputs.params).ipaFilename || '*.ipa' }}
           PROJECT_ID: ${{ github.event.inputs.projectid }}
           PROVISION_FILE: ${{ steps.fetch-config.outputs.provision_file }}
-          P12_PASSWORD: ${{ fromJSON(steps.fetch-config.outputs.provision).password || '' }}
+          P12_PASSWORD: ${{ steps.fetch-config.outputs.p12_password }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
           APP_VERSION: ${{ steps.package-version.outputs.current-version }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -167,9 +115,4 @@ jobs:
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          PROJECT_ID: ${{ github.event.inputs.projectid }}
-          RELEASE_ID: ${{ steps.release.outputs.id }}
-        run: |
-          curl -s -f -L -X POST \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/release?id=$RELEASE_ID"
+        run: node scripts/update-release.js --release-id "${{ steps.release.outputs.id }}"

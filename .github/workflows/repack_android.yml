@@ -23,35 +23,13 @@ jobs:
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          PROJECT_ID: ${{ github.event.inputs.projectid }}
-          BRANCH: ${{ github.event.inputs.branch }}
-        run: |
-          set -euo pipefail
-          PARAMS=$(curl -s -f -L -G \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/buildparams?platform=android&branch=$BRANCH")
-          echo "params=$PARAMS" >> "$GITHUB_OUTPUT"
-          PARAMS="$PARAMS" node -e '
-            try {
-              const p = JSON.parse(process.env.PARAMS || "{}");
-              for (const k of ["p12pass", "keystorePassword", "keyPassword", "password"]) {
-                if (p[k]) console.log(`::add-mask::${p[k]}`);
-              }
-            } catch {}
-          '
+        run: node scripts/fetch-config.js --platform android --project-id "${{ github.event.inputs.projectid }}" --branch "${{ github.event.inputs.branch }}"
 
       - name: Clone Source Repo
         env:
           GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
           GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
-          BRANCH: ${{ fromJSON(steps.fetch-config.outputs.params).branch }}
-          REPO: ${{ fromJSON(steps.fetch-config.outputs.params).repo }}
-        run: |
-          set -euo pipefail
-          git clone --depth=1 --single-branch \
-            --branch="$BRANCH" \
-            "https://${GIT_USERNAME}:${GIT_PASSWORD}@${REPO}" \
-            input
+        run: node scripts/clone-repo.js
 
       - name: Get App Version
         id: package-version
@@ -64,20 +42,7 @@ jobs:
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          RUN_ID: ${{ github.run_id }}
-          PARAMS: ${{ steps.fetch-config.outputs.params }}
-          UNIQUE_ID: ${{ fromJSON(steps.fetch-config.outputs.params).uniqueId }}
-          PROJECT_ID: ${{ github.event.inputs.projectid }}
-          VERSION: ${{ steps.package-version.outputs.current-version }}
-        run: |
-          curl -s -f -L -X POST \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            --data-urlencode "wf_id=$RUN_ID" \
-            --data-urlencode "params=$PARAMS" \
-            --data-urlencode "uniqueId=$UNIQUE_ID" \
-            --data-urlencode "version=$VERSION" \
-            --data-urlencode "platform=android" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/trigger-log"
+        run: node scripts/trigger-log.js --platform android --version "${{ steps.package-version.outputs.current-version }}"
 
       - name: Setup Java JDK
         uses: actions/setup-java@v4.4.0
@@ -150,9 +115,4 @@ jobs:
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          PROJECT_ID: ${{ github.event.inputs.projectid }}
-          RELEASE_ID: ${{ steps.release.outputs.id }}
-        run: |
-          curl -s -f -L -X POST \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/release?id=$RELEASE_ID"
+        run: node scripts/update-release.js --release-id "${{ steps.release.outputs.id }}"

@@ -44,18 +44,20 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Checkout CI Scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Mask sensitive parameters
+        run: node scripts/mask-params.js
+
       - name: Clone Repo
         env:
           GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
           GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
-          BRANCH: ${{ fromJSON(github.event.inputs.params).branch }}
-          REPO: ${{ fromJSON(github.event.inputs.params).repo }}
-        run: |
-          set -euo pipefail
-          git clone --depth=1 --single-branch \
-            --branch="$BRANCH" \
-            "https://${GIT_USERNAME}:${GIT_PASSWORD}@${REPO}" \
-            input
+        run: node scripts/clone-repo.js
 
       - name: Get App Version
         id: package-version
@@ -70,20 +72,7 @@ jobs:
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          PARAMS: ${{ github.event.inputs.params }}
-          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
-          VERSION: ${{ steps.package-version.outputs.current-version }}
-          COMMIT_HASH: ${{ steps.package-version.outputs.commit-hash }}
-        run: |
-          curl -s -f -L -X POST \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            --data-urlencode "wf_id=${{ github.run_id }}" \
-            --data-urlencode "params=$PARAMS" \
-            --data-urlencode "uniqueId=${{ fromJSON(github.event.inputs.params).uniqueId }}" \
-            --data-urlencode "version=$VERSION" \
-            --data-urlencode "commit_hash=$COMMIT_HASH" \
-            --data-urlencode "platform=macos" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/trigger-log"
+        run: node scripts/trigger-log.js --platform macos --version "${{ steps.package-version.outputs.current-version }}" --commit "${{ steps.package-version.outputs.commit-hash }}"
 
       - name: Setup Node.js environment
         if: ${{ fromJSON(github.event.inputs.params).node != '' && fromJSON(github.event.inputs.params).node != null }}
@@ -145,10 +134,4 @@ jobs:
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
-          RELEASE_ID: ${{ steps.release.outputs.id }}
-          COMMIT_HASH: ${{ steps.package-version.outputs.commit-hash }}
-        run: |
-          curl -s -f -L -X POST \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/release?id=$RELEASE_ID&commit_hash=$COMMIT_HASH"
+        run: node scripts/update-release.js --release-id "${{ steps.release.outputs.id }}" --commit "${{ steps.package-version.outputs.commit-hash }}"

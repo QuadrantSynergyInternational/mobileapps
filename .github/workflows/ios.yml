@@ -51,35 +51,25 @@ jobs:
     env:
       SENTRY_ALLOW_FAILURE: true
     steps:
+      - name: Checkout CI Scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+
       - name: Mask sensitive parameters
-        env:
-          PARAMS: ${{ github.event.inputs.params }}
-        run: |
-          node -e '
-            try {
-              const p = JSON.parse(process.env.PARAMS || "{}");
-              for (const k of ["p12pass", "keystorePassword", "keyPassword", "password"]) {
-                if (p[k]) console.log(`::add-mask::${p[k]}`);
-              }
-            } catch {}
-          '
+        run: node scripts/mask-params.js
 
       - name: Clone Repo
         env:
           GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
           GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
-          BRANCH: ${{ fromJSON(github.event.inputs.params).branch }}
-          REPO: ${{ fromJSON(github.event.inputs.params).repo }}
-        run: |
-          set -euo pipefail
-          git clone --depth=1 --single-branch --branch="$BRANCH" "https://${GIT_USERNAME}:${GIT_PASSWORD}@${REPO}" input
+        run: node scripts/clone-repo.js
 
       - name: Clone Provision
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          set -euo pipefail
-          git clone --depth=1 --single-branch --branch=main "https://admindevopsqsi:${GH_PAT}@github.com/admindevopsqsi/ios-provision.git" provision
+        run: node scripts/clone-provision.js
 
       - name: Get Apps Version
         id: package-version
@@ -94,52 +84,10 @@ jobs:
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          RUN_ID: ${{ github.run_id }}
-          PARAMS: ${{ github.event.inputs.params }}
-          UNIQUE_ID: ${{ fromJSON(github.event.inputs.params).uniqueId }}
-          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
-          VERSION: ${{ steps.package-version.outputs.current-version }}
-          COMMIT_HASH: ${{ steps.package-version.outputs.commit-hash }}
-        run: |
-          curl -s -L -X POST \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            --data-urlencode "wf_id=$RUN_ID" \
-            --data-urlencode "params=$PARAMS" \
-            --data-urlencode "uniqueId=$UNIQUE_ID" \
-            --data-urlencode "version=$VERSION" \
-            --data-urlencode "commit_hash=$COMMIT_HASH" \
-            --data-urlencode "platform=ios" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/trigger-log"
+        run: node scripts/trigger-log.js --platform ios --version "${{ steps.package-version.outputs.current-version }}" --commit "${{ steps.package-version.outputs.commit-hash }}"
 
       - name: Validate P12
-        env:
-          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
-          PROVISION_FILE: ${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}
-          P12_PASS: ${{ fromJSON(github.event.inputs.params).p12pass || '' }}
-        run: |
-          set -euo pipefail
-          P12_FILE="./provision/${PROJECT_ID}/${PROVISION_FILE}.p12"
-          echo "🔧 Creating temporary keychain..."
-          security create-keychain -p "" temp.keychain
-
-          echo "🔓 Unlocking keychain..."
-          security unlock-keychain -p "" temp.keychain
-
-          echo "🔍 Validating P12 import..."
-          if security import "$P12_FILE" -k temp.keychain -P "$P12_PASS" \
-               -T /usr/bin/codesign \
-               -T /usr/bin/security \
-               -T /usr/bin/productbuild \
-               -T /usr/bin/productsign; then
-            echo "✅ Import successful"
-          else
-            echo "❌ Import failed" >&2
-            security delete-keychain temp.keychain
-            exit 1
-          fi
-
-          echo "🧹 Cleaning up keychain..."
-          security delete-keychain temp.keychain
+        run: node scripts/validate-p12.js
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         if: ${{ fromJSON(github.event.inputs.params).ruby != '' }}
@@ -220,7 +168,9 @@ jobs:
           # pod repo update
           # pod update
       - name: Download Export Plist
-        run: curl --fail-with-body --output export.plist "https://appcenterq.vercel.app/ios-export?projectid=${{ fromJSON(github.event.inputs.params).projectid }}&branch=${{ fromJSON(github.event.inputs.params).branch }}"
+        env:
+          APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+        run: node scripts/download-export-plist.js
       - name: Build IPA
         uses: muhamad-rizki/ios-build-action@v1
         with:
@@ -275,13 +225,7 @@ jobs:
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
-          RELEASE_ID: ${{ steps.release.outputs.id }}
-          COMMIT_HASH: ${{ steps.package-version.outputs.commit-hash }}
-        run: |
-          curl -s -L -X POST \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/release?id=$RELEASE_ID&commit_hash=$COMMIT_HASH"
+        run: node scripts/update-release.js --release-id "${{ steps.release.outputs.id }}" --commit "${{ steps.package-version.outputs.commit-hash }}"
       - name: Upload Source Maps
         id: release-maps
         uses: muhamad-rizki/action-gh-release@v3.0.5

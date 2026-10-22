@@ -44,16 +44,20 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Checkout CI Scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Mask sensitive parameters
+        run: node scripts/mask-params.js
+
       - name: Clone Repo
-        shell: pwsh
         env:
-          REPO: ${{ fromJSON(github.event.inputs.params).repo }}
-          BRANCH: ${{ fromJSON(github.event.inputs.params).branch }}
           GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
           GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
-        run: |
-          $url = "https://$env:GIT_USERNAME`:$env:GIT_PASSWORD@$env:REPO"
-          git clone --depth=1 --single-branch --branch "$env:BRANCH" "$url" input
+        run: node scripts/clone-repo.js
 
       - name: Get App Version
         id: package-version
@@ -70,26 +74,10 @@ jobs:
           "commit-hash=$commitHash" >> $env:GITHUB_OUTPUT
 
       - name: Logging
-        shell: pwsh
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
-          PARAMS: ${{ github.event.inputs.params }}
-          RUN_ID: ${{ github.run_id }}
-          VERSION: ${{ steps.package-version.outputs.current-version }}
-          COMMIT_HASH: ${{ steps.package-version.outputs.commit-hash }}
-          DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
-        run: |
-          $params = $env:PARAMS | ConvertFrom-Json
-          $form = @{
-            wf_id = $env:RUN_ID
-            params = $env:PARAMS
-            uniqueId = $params.uniqueId
-            version = $env:VERSION
-            commit_hash = $env:COMMIT_HASH
-            platform = "windows"
-          }
-          Invoke-WebRequest -UseBasicParsing -Method Post -Uri "https://$env:DOMAIN/projects/$env:PROJECT_ID/trigger-log" -Headers @{ "X-AppCenter-Secret" = $env:APPCENTER_SECRET } -Form $form
+          APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+        run: node scripts/trigger-log.js --platform windows --version "${{ steps.package-version.outputs.current-version }}" --commit "${{ steps.package-version.outputs.commit-hash }}"
 
       - name: Setup Node.js environment
         if: ${{ fromJSON(github.event.inputs.params).node != '' && fromJSON(github.event.inputs.params).node != null }}
@@ -155,12 +143,7 @@ jobs:
           body: Windows artifact build v${{ steps.package-version.outputs.current-version }}
 
       - name: Update release
-        shell: pwsh
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
-          DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
-          RELEASE_ID: ${{ steps.release.outputs.id }}
-          COMMIT_HASH: ${{ steps.package-version.outputs.commit-hash }}
-        run: |
-          Invoke-WebRequest -UseBasicParsing -Method Post -Uri "https://$env:DOMAIN/projects/$env:PROJECT_ID/release?id=$env:RELEASE_ID&commit_hash=$env:COMMIT_HASH" -Headers @{ "X-AppCenter-Secret" = $env:APPCENTER_SECRET }
+          APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
+        run: node scripts/update-release.js --release-id "${{ steps.release.outputs.id }}" --commit "${{ steps.package-version.outputs.commit-hash }}"

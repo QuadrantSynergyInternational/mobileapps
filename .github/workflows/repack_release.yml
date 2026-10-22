@@ -75,12 +75,7 @@ jobs:
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
-          RELEASE_ID: ${{ steps.release.outputs.id }}
-        run: |
-          curl -s -L -X POST \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/release?id=$RELEASE_ID"
+        run: node scripts/update-release.js --release-id "${{ steps.release.outputs.id }}"
 
   # ── iOS repack ──────────────────────────────────────────────────────────────
   repack-ios:
@@ -152,9 +147,4 @@ jobs:
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          PROJECT_ID: ${{ fromJSON(github.event.inputs.params).projectid }}
-          RELEASE_ID: ${{ steps.release.outputs.id }}
-        run: |
-          curl -s -L -X POST \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/release?id=$RELEASE_ID"
+        run: node scripts/update-release.js --release-id "${{ steps.release.outputs.id }}"

@@ -1,5 +1,6 @@
 scripts/.env
 appcenter
+.ci-params.json
 
 .codesight
 .pi-subagents

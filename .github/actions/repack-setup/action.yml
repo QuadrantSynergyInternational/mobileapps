@@ -36,31 +36,14 @@ runs:
   steps:
     - name: Mask sensitive parameters
       shell: bash
-      env:
-        PARAMS: ${{ inputs.params }}
-      run: |
-        node -e '
-          try {
-            const p = JSON.parse(process.env.PARAMS || "{}");
-            for (const k of ["p12pass", "keystorePassword", "keyPassword", "password"]) {
-              if (p[k]) console.log(`::add-mask::${p[k]}`);
-            }
-          } catch {}
-        '
+      run: node scripts/mask-params.js
 
     - name: Clone Source Repo
       shell: bash
       env:
         GIT_USERNAME: ${{ inputs.git_username }}
         GIT_PASSWORD: ${{ inputs.git_password }}
-        BRANCH: ${{ fromJSON(inputs.params).branch }}
-        REPO: ${{ fromJSON(inputs.params).repo }}
-      run: |
-        set -euo pipefail
-        git clone --depth=1 --single-branch \
-          --branch="$BRANCH" \
-          "https://${GIT_USERNAME}:${GIT_PASSWORD}@${REPO}" \
-          input
+      run: node scripts/clone-repo.js
 
     - name: Get App Version
       id: package-version
@@ -75,21 +58,7 @@ runs:
       env:
         APPCENTER_SECRET: ${{ inputs.appcenter_secret }}
         APPCENTER_DOMAIN: ${{ inputs.appcenter_domain }}
-        RUN_ID: ${{ inputs.run_id }}
-        PARAMS: ${{ inputs.params }}
-        UNIQUE_ID: ${{ fromJSON(inputs.params).uniqueId }}
-        PROJECT_ID: ${{ fromJSON(inputs.params).projectid }}
-        VERSION: ${{ steps.package-version.outputs.current-version }}
-        PLATFORM: ${{ inputs.platform }}
-      run: |
-        curl -s -L -X POST \
-          -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-          --data-urlencode "wf_id=$RUN_ID" \
-          --data-urlencode "params=$PARAMS" \
-          --data-urlencode "uniqueId=$UNIQUE_ID" \
-          --data-urlencode "version=$VERSION" \
-          --data-urlencode "platform=$PLATFORM" \
-          "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/trigger-log"
+      run: node scripts/trigger-log.js --platform "${{ inputs.platform }}" --version "${{ steps.package-version.outputs.current-version }}"
 
     - name: Setup Node.js
       if: ${{ fromJSON(inputs.params).node != '' }}

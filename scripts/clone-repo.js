@@ -1,0 +1,53 @@
+#!/usr/bin/env node
+const { execFileSync } = require('child_process');
+const { parseCliArgs, loadParams } = require('./ci-helper');
+
+function main() {
+  const args = parseCliArgs();
+  const params = loadParams();
+
+  const branch = args.branch || params.branch;
+  const repo = args.repo || params.repo;
+  const targetDir = args.target || 'input';
+
+  if (!branch || !repo) {
+    console.error('[clone-repo] Missing branch or repo in parameters.');
+    process.exit(1);
+  }
+
+  const username = process.env.GIT_USERNAME;
+  const password = process.env.GIT_PASSWORD;
+
+  const cleanRepo = repo.replace(/^https?:\/\//i, '').replace(/^[^@]+@/, '');
+  const cloneUrl = `https://${cleanRepo}`;
+
+  const gitArgs = [];
+  if (username && password) {
+    const auth = Buffer.from(`${username}:${password}`).toString('base64');
+    gitArgs.push('-c', `http.extraheader=Authorization: Basic ${auth}`);
+  }
+
+  gitArgs.push('clone', '--depth=1', '--single-branch', '--branch', branch, cloneUrl, targetDir);
+
+  console.log(`[clone-repo] Cloning branch "${branch}" into "${targetDir}"...`);
+  try {
+    execFileSync('git', gitArgs, {
+      stdio: ['ignore', 'inherit', 'inherit'],
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: '0',
+      },
+    });
+    console.log(`[clone-repo] Successfully cloned repository into "${targetDir}".`);
+  } catch {
+    console.error(`[clone-repo] Failed to clone repository branch "${branch}".`);
+    process.exit(1);
+  }
+}
+
+try {
+  main();
+} catch (err) {
+  console.error('[clone-repo] Unexpected error:', err.message);
+  process.exit(1);
+}

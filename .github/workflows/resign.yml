@@ -36,24 +36,25 @@ jobs:
   build:
     runs-on: macOS-latest
     steps:
+      - name: Checkout CI Scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+
       - name: Logging
         env:
           APPCENTER_SECRET: ${{ secrets.APPCENTER_SECRET }}
           APPCENTER_DOMAIN: ${{ secrets.APPCENTER_DOMAIN }}
-          PROJECT_ID: ${{ github.event.inputs.projectid }}
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          curl -s -L -X POST \
-            -H "X-AppCenter-Secret: $APPCENTER_SECRET" \
-            "https://$APPCENTER_DOMAIN/projects/$PROJECT_ID/trigger-log?wf_id=$RUN_ID"
+        run: node scripts/trigger-log.js --platform ios --project-id "${{ github.event.inputs.projectid }}" --version "${{ github.event.inputs.version }}"
+
       - name: Clone Provision
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          set -euo pipefail
-          git clone --depth=1 --single-branch --branch=main "https://admindevopsqsi:${GH_PAT}@github.com/admindevopsqsi/ios-provision.git" provision
+        run: node scripts/clone-provision.js
+
       - name: Download IPA
-        run: curl --fail-with-body -L --output output.ipa ${{ github.event.inputs.url }}
+        run: curl --fail-with-body --silent --show-error -L --output output.ipa "${{ github.event.inputs.url }}"
       - name: Build IPA
         uses: muhamad-rizki/ios-build-action@v1.0.11
         with:
