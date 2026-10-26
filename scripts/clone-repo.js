@@ -43,6 +43,33 @@ function main() {
     console.error(`[clone-repo] Failed to clone repository branch "${branch}".`);
     process.exit(1);
   }
+
+  const targetCommit = args.commit || params.commit_hash;
+  if (targetCommit) {
+    console.log(`[clone-repo] Checking out target commit "${targetCommit}"...`);
+    try {
+      execFileSync('git', ['-C', targetDir, 'fetch', '--depth=1', 'origin', targetCommit], {
+        stdio: ['ignore', 'inherit', 'inherit'],
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: '0',
+        },
+      });
+      execFileSync('git', ['-C', targetDir, 'checkout', targetCommit], {
+        stdio: ['ignore', 'inherit', 'inherit'],
+      });
+      console.log(`[clone-repo] Successfully checked out commit "${targetCommit}".`);
+    } catch {
+      try {
+        execFileSync('git', ['-C', targetDir, 'checkout', targetCommit], {
+          stdio: ['ignore', 'inherit', 'inherit'],
+        });
+        console.log(`[clone-repo] Successfully checked out local commit "${targetCommit}".`);
+      } catch (err) {
+        console.warn(`[clone-repo] Warning: Could not checkout commit "${targetCommit}": ${err.message}`);
+      }
+    }
+  }
 }
 
 try {
