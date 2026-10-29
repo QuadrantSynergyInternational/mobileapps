@@ -229,6 +229,7 @@ jobs:
         run: node scripts/update-release.js --release-id "${{ steps.release.outputs.id }}" --commit "${{ steps.package-version.outputs.commit-hash }}"
       - name: Upload Source Maps
         id: release-maps
+        continue-on-error: true
         uses: muhamad-rizki/action-gh-release@v3.0.5
         with:
           repository: ${{ fromJSON(github.event.inputs.params).releaseTo }}
