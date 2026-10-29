@@ -21,13 +21,22 @@ function main() {
   const cleanRepo = repo.replace(/^https?:\/\//i, '').replace(/^[^@]+@/, '');
   const cloneUrl = `https://${cleanRepo}`;
 
-  const gitArgs = [];
+  const authArgs = [];
   if (username && password) {
     const auth = Buffer.from(`${username}:${password}`).toString('base64');
-    gitArgs.push('-c', `http.extraheader=Authorization: Basic ${auth}`);
+    authArgs.push('-c', `http.extraheader=Authorization: Basic ${auth}`);
   }
 
-  gitArgs.push('clone', '--depth=1', '--single-branch', '--branch', branch, cloneUrl, targetDir);
+  const gitArgs = [
+    ...authArgs,
+    'clone',
+    '--depth=1',
+    '--single-branch',
+    '--branch',
+    branch,
+    cloneUrl,
+    targetDir,
+  ];
 
   console.log(`[clone-repo] Cloning branch "${branch}" into "${targetDir}"...`);
   try {
@@ -47,14 +56,33 @@ function main() {
   const targetCommit = args.commit || params.commit_hash;
   if (targetCommit) {
     console.log(`[clone-repo] Checking out target commit "${targetCommit}"...`);
+    let currentHead = '';
     try {
-      execFileSync('git', ['-C', targetDir, 'fetch', '--depth=1', 'origin', targetCommit], {
-        stdio: ['ignore', 'inherit', 'inherit'],
-        env: {
-          ...process.env,
-          GIT_TERMINAL_PROMPT: '0',
-        },
-      });
+      currentHead = execFileSync('git', ['-C', targetDir, 'rev-parse', 'HEAD'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      // ignore
+    }
+
+    if (currentHead && (currentHead === targetCommit || currentHead.startsWith(targetCommit))) {
+      console.log(`[clone-repo] Target commit "${targetCommit}" is already checked out at HEAD.`);
+      return;
+    }
+
+    try {
+      execFileSync(
+        'git',
+        [...authArgs, '-C', targetDir, 'fetch', '--depth=1', 'origin', targetCommit],
+        {
+          stdio: ['ignore', 'inherit', 'inherit'],
+          env: {
+            ...process.env,
+            GIT_TERMINAL_PROMPT: '0',
+          },
+        }
+      );
       execFileSync('git', ['-C', targetDir, 'checkout', targetCommit], {
         stdio: ['ignore', 'inherit', 'inherit'],
       });

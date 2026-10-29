@@ -146,8 +146,9 @@ jobs:
           EXPECTED_XCODE_VERSION: ${{ needs.preflight.outputs.xcode-version }}
         run: |
           set -euo pipefail
-          xcodebuild -version
-          actual_version=$(xcodebuild -version | awk '/^Xcode / { print $2; exit }')
+          version_output=$(xcodebuild -version)
+          echo "$version_output"
+          actual_version=$(echo "$version_output" | awk '/^Xcode / { print $2 }')
           case "$actual_version" in
             "$EXPECTED_XCODE_VERSION") ;;
             *)
