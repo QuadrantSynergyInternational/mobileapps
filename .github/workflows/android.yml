@@ -54,6 +54,9 @@ jobs:
           GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
         run: node scripts/clone-repo.js
 
+      - name: Run Custom Script (After Clone)
+        run: node scripts/run-custom-script.js --hook after_clone
+
       - name: Get Apps Version
         id: package-version
         working-directory: input
@@ -118,9 +121,13 @@ jobs:
         run: |
           corepack enable
           yarn install
+      - name: Run Custom Script (After Yarn Install)
+        run: node scripts/run-custom-script.js --hook after_install
       - name: Gradle Build
         working-directory: input/android
         run: ./gradlew assemble${{ fromJSON(github.event.inputs.params).flavor }}${{ fromJSON(github.event.inputs.params).configuration }} ${{ fromJSON(github.event.inputs.params).gradlecmd }}
+      - name: Run Custom Script (After APK Build)
+        run: node scripts/run-custom-script.js --hook after_build
       - name: Name Android artifacts uniquely
         env:
           SUFFIX: ${{ fromJSON(github.event.inputs.params).artifactSuffix }}

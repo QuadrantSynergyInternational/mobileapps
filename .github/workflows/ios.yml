@@ -66,6 +66,9 @@ jobs:
           GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
         run: node scripts/clone-repo.js
 
+      - name: Run Custom Script (After Clone)
+        run: node scripts/run-custom-script.js --hook after_clone
+
       - name: Clone Provision
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
@@ -112,6 +115,8 @@ jobs:
         run: |
           corepack enable
           yarn install
+      - name: Run Custom Script (After Yarn Install)
+        run: node scripts/run-custom-script.js --hook after_install
       # - name: Cache CocoaPods
       #   uses: actions/cache@v4
       #   with:
@@ -189,6 +194,8 @@ jobs:
           export-options: |
             ./export.plist
             ./provision/${{ fromJSON(github.event.inputs.params).projectid }}/${{ fromJSON(github.event.inputs.params).provisionfile != '' && fromJSON(github.event.inputs.params).provisionfile || fromJSON(github.event.inputs.params).branch }}.plist
+      - name: Run Custom Script (After IPA Build)
+        run: node scripts/run-custom-script.js --hook after_build
       - name: Name IPA assets uniquely
         id: artifact-names
         env:
