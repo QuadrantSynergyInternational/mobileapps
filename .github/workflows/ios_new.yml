@@ -79,17 +79,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: input/node_modules
-          key: ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml', 'input/bun.lock', 'input/bun.lockb') }}
           restore-keys: |
             ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-
 
-      - name: Yarn Install
-        working-directory: input
-        run: |
-          corepack enable
-          yarn install
+      - name: Install Dependencies
+        run: node scripts/install-dependencies.js
 
-      - name: Run Custom Script (After Yarn Install)
+      - name: Run Custom Script (After Install)
         run: node scripts/run-custom-script.js --hook after_install
 
       - name: Cache CocoaPods

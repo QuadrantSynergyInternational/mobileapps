@@ -116,12 +116,9 @@ jobs:
           echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
           echo fs.inotify.max_user_instances=1024 | sudo tee -a /etc/sysctl.conf
           sudo sysctl -p
-      - name: Yarn Install
-        working-directory: input
-        run: |
-          corepack enable
-          yarn install
-      - name: Run Custom Script (After Yarn Install)
+      - name: Install Dependencies
+        run: node scripts/install-dependencies.js
+      - name: Run Custom Script (After Install)
         run: node scripts/run-custom-script.js --hook after_install
       - name: Gradle Build
         working-directory: input/android

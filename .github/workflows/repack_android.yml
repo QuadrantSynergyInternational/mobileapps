@@ -61,21 +61,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: input/node_modules
-          key: ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml', 'input/bun.lock', 'input/bun.lockb') }}
           restore-keys: |
             ${{ runner.os }}-node-modules-${{ github.event.inputs.projectid }}-
 
       - name: Install Dependencies
-        working-directory: input
-        run: |
-          corepack enable
-          if [ -f "yarn.lock" ]; then
-            yarn install
-          elif [ -f "pnpm-lock.yaml" ]; then
-            pnpm install
-          else
-            npm install
-          fi
+        run: node scripts/install-dependencies.js
 
       - name: Repack and Sign APK
         env:
