@@ -50,6 +50,11 @@ jobs:
     runs-on: ${{ needs.preflight.outputs.runner }}
     env:
       SENTRY_ALLOW_FAILURE: true
+      SCCACHE_GHA_ENABLED: "true"
+      SCCACHE_IDLE_TIMEOUT: "0"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
+      RUSTC_WRAPPER: sccache
     steps:
       - name: Checkout CI Scripts
         uses: actions/checkout@v4
@@ -110,6 +115,14 @@ jobs:
       #     key: ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-${{ hashFiles('input/yarn.lock', 'input/package-lock.json', 'input/pnpm-lock.yaml') }}
       #     restore-keys: |
       #       ${{ runner.os }}-node-modules-${{ fromJSON(github.event.inputs.params).projectid }}-${{ fromJSON(github.event.inputs.params).branch }}-
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Start sccache server
+        run: |
+          sudo mkdir -p /usr/local/bin
+          sudo ln -sf "$SCCACHE_PATH" /usr/local/bin/sccache
+          sccache --start-server
+          sccache --zero-stats
       - name: Install Dependencies
         run: node scripts/install-dependencies.js
       - name: Run Custom Script (After Install)
@@ -168,6 +181,34 @@ jobs:
             echo "⚙️ Using Legacy Architecture"
           fi
           pod install --repo-update
+          mkdir -p scripts
+          if [ ! -f scripts/sccache-clang.sh ]; then
+            printf '#!/bin/sh\nexec sccache clang "$@"\n' > scripts/sccache-clang.sh
+          fi
+          if [ ! -f scripts/sccache-clang++.sh ]; then
+            printf '#!/bin/sh\nexec sccache clang++ "$@"\n' > scripts/sccache-clang++.sh
+          fi
+          chmod +x scripts/sccache-clang.sh scripts/sccache-clang++.sh
+          ruby -r xcodeproj -e '
+            pods_proj = "Pods/Pods.xcodeproj"
+            exit 0 unless File.exist?(pods_proj)
+            cc = File.expand_path("scripts/sccache-clang.sh")
+            cxx = File.expand_path("scripts/sccache-clang++.sh")
+            proj = Xcodeproj::Project.open(pods_proj)
+            proj.build_configurations.each do |cfg|
+              cfg.build_settings["CC"] = cc
+              cfg.build_settings["CXX"] = cxx
+              cfg.build_settings["COMPILER_INDEX_STORE_ENABLE"] = "NO"
+            end
+            proj.targets.each do |t|
+              t.build_configurations.each do |cfg|
+                cfg.build_settings["CC"] = cc
+                cfg.build_settings["CXX"] = cxx
+                cfg.build_settings["COMPILER_INDEX_STORE_ENABLE"] = "NO"
+              end
+            end
+            proj.save
+          '
           # pod repo update
           # pod update
       - name: Download Export Plist

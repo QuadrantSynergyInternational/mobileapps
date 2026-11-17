@@ -15,6 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SENTRY_ALLOW_FAILURE: true
+      SCCACHE_GHA_ENABLED: "true"
+      SCCACHE_IDLE_TIMEOUT: "0"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
+      NDK_CCACHE: sccache
+      RUSTC_WRAPPER: sccache
     steps:
       - name: Checkout CI Scripts
         uses: actions/checkout@v4
@@ -84,6 +90,16 @@ jobs:
           add-to-path: true
           link-to-sdk: true
           local-cache: true
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+
+      - name: Start sccache server
+        run: |
+          sudo mkdir -p /usr/local/bin
+          sudo ln -sf "$SCCACHE_PATH" /usr/local/bin/sccache
+          sccache --start-server
+          sccache --zero-stats
 
       - name: Setup Node.js environment
         uses: actions/setup-node@v4.0.4
